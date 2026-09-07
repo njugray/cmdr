@@ -1,0 +1,24 @@
+{
+  "name": "cmdr",
+  "version": "0.1.0",
+  "description": "Local multi-agent squads with durable messages, roles and lifecycle reminders.",
+  "author": {
+    "name": "njugray"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/njugray/cmdr",
+  "skills": "./skills/",
+  "commands": "./commands/",
+  "mcpServers": {
+    "cmdr": {
+      "type": "stdio",
+      "command": "${ZCODE_PLUGIN_ROOT}/bin/cmdr-mcp",
+      "cwd": "${CLAUDE_PROJECT_DIR}",
+      "env": {
+        "CMDR_AGENT": "zcode",
+        "CMDR_TOOL_TIMEOUT_SEC": "600"
+      },
+      "timeoutMs": 600000
+    }
+  }
+}

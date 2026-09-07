@@ -2,7 +2,7 @@
 
 > **cmdr**（Commander）：让同一台机器上的多个 Claude Code / Codex 会话组成"小队"，通过 MCP 工具互相通信。指挥官下发命令、回答询问，执行方报到、汇报、询问；服务端为每个会话维护一个带优先级的消息队列，并通过 hooks 在合适的时机提醒 Agent 读取。
 >
-> 文档状态：需求评估与关键决策于 2026-09-07 确认；同日完成 v0.1.0 实现（`src/`，打包到 `plugins/cmdr/dist/`），并在桌面端首轮试用后发布 v0.1.1（`join` 返回可直接粘贴的 `user_reply`、小队以指挥官名字命名、消息 id 随机位加长；版本换代路径已实测），本文已与实现同步。v0.1.2（同日，Claude × Codex 混合小队首次真实协作）修正了 Codex 插件 MCP 配置被整体忽略的问题（2、11.2、18 节），并新增会话 cwd 判定（7.5 节）与等待时长协商（8.5 节），修正 Codex 标题来源（7.4 节）、幽灵会话行（9.4 节）、`ready` 汇报误拦截 Stop（4.2、5.2 节）三处，`cmdr doctor` 增加 Codex MCP 注册检查（13 节）。第 17 节记录交付与验证状态，第 18 节记录仍待确认的事项。文中标注 **[spike]** 的条目为尚未验证的假设。
+> **当前实现状态（2026-09-08）**：本仓库已从仅含文档的分支实现 v1 源码、插件与测试，并按新增需求支持 ZCode 桌面端和任意 MCP Agent 接入。本文保留既有设计及原型试用记录；其中历史 v0.1.x 的完成日期、版本号与实测结论不是本次代码的验证凭据。本次具体交付、差异、38 个自动化用例和 ZCode 本机运行时验证见 [实现与验证记录](implementation.md)，新增宿主契约见 [Agent 接入指南](agent-integration.md)。
 >
 > 本文的目标是"照着它能把 cmdr 重新实现一遍"：第 2 节是平台事实（决定形态、且只能靠实测得到），第 4–10 节是设计与关键算法，第 11 节是打包与安装，11.1 节的源码树标注了每个文件的职责。凡是靠试错才得到的结论都写明了实测版本号。
 
@@ -23,6 +23,15 @@
 | 9 | 快捷建队 / 入队 | 提供 `/cmdr <name>` 作为面向用户的统一入口：同名 active 小队存在时以执行方加入，否则创建同名小队并成为指挥官；显式 `join(role, squad)` 仍用于指定角色、按 id 加入和 orphaned 接管 |
 
 ---
+
+## 0.1 本次实现新增决策（2026-09-08）
+
+- **分发方式更新**：按用户要求，`dist` 产物和生成许可证声明不进入 Git（本次 PR 历史亦移除），通过 npm 的 `prepack` 构建并包含在发布包中。源码安装需先构建；不再直接安装未经构建的 Git 源码插件。
+
+- `agent` 不再限定为 Claude / Codex 枚举，采用开放标识；任何 MCP stdio 宿主都可通过 `CMDR_AGENT` 与可选 `CMDR_SESSION_ID` 接入。没有 hooks 时使用长轮询与工具返回的未读数。
+- 增加原生 `.zcode-plugin/plugin.json` 与根目录 `marketplace.json`。ZCode 专用 MCP 超时为 600000 ms；支持 4 类生命周期 hooks，SessionEnd 由连接 EOF 兜底。
+- 同一个 MCP 进程服务多个宿主会话时，按 `_cmdr_session` 分配独立 daemon 连接，替代旧原型对第二个正式身份盖章的忽略行为。
+- `/cmdr <name>` 统一调用 `join(squad_name=<name>)`；不新增第八个工具，不由 Agent 分开执行查找与创建。显式 `role` / `squad` 接口保留。
 
 ## 1. 目标与非目标
 
@@ -544,7 +553,7 @@ cmdr/
 │   │   ├── cmdr-hook
 │   │   ├── cmdr-daemon
 │   │   └── cmdr                          # CLI
-│   ├── dist/                            # esbuild 产物，随仓库提交（安装端零依赖）
+│   ├── dist/                            # esbuild 产物，Git 忽略，npm 发布包包含（安装端零依赖）
 │   │   ├── daemon.mjs  mcp.mjs  hook.mjs  cli.mjs
 │   ├── skills/
 │   │   ├── using-cmdr/SKILL.md
@@ -814,7 +823,7 @@ sequenceDiagram
 | 语言 / 运行时 | TypeScript，Node ≥ 22.5（推荐 24），ESM | 与 zeta 仓库一致 |
 | MCP | `@modelcontextprotocol/sdk` stdio server | 官方 SDK，工具 schema 用 zod 定义 |
 | 存储 | `node:sqlite`（`DatabaseSync`，WAL） | 无原生依赖；Node 24 实测可用 |
-| 打包 | esbuild → `plugins/cmdr/dist/*.mjs`，`--bundle --platform=node --format=esm` | 产物提交进仓库，安装端无 `npm install` |
+| 打包 | esbuild → `plugins/cmdr/dist/*.mjs`，`--bundle --platform=node --format=esm` | 产物由 npm prepack 构建并放入发布包，不提交 Git；包内运行时零依赖 |
 | 测试 | vitest | 单元：id 生成、agent 探测与 `recommendedWait`、store、标题派生、cwd 过滤；集成：在临时 `CMDR_HOME` 下拉起真 daemon 走完整流程（建队 → 报到 → 派发 → `read(wait)` 被推送唤醒 → `ask`/`answer` → hook 提醒与 Stop 拦截 → 接管 → 解散 → 断连置 offline），另一组以 stdio 直接驱动打包后的 `dist/mcp.mjs`。v0.1.2 为 8 个文件 44 个用例 |
 | 版本 | 插件 `version` 与 daemon `version` 同源（`package.json`）；`protocol` 独立主版本号 | |
 | 发布 | `git tag cmdr--v0.1.0`（Claude 的 `claude plugin tag` 约定），两边 marketplace 指向同一目录 | |
@@ -822,6 +831,9 @@ sequenceDiagram
 ---
 
 ## 17. 交付与验证状态（v0.1.0，2026-09-07）
+
+> 本节保留原型历史记录。当前源码实现的验证范围以 [implementation.md](implementation.md) 为准，不沿用下列历史用例数或 GUI 实测结论。
+
 
 | 阶段 | 交付 | 状态 |
 |------|------|------|

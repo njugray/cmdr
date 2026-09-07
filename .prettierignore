@@ -1,0 +1,4 @@
+node_modules/
+plugins/cmdr/dist/
+plugins/cmdr/THIRD_PARTY_NOTICES.txt
+package-lock.json

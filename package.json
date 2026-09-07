@@ -1,0 +1,44 @@
+{
+  "name": "cmdr",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local multi-agent squads for Claude Code, Codex, ZCode and any MCP host",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run format:check && npm run typecheck && npm run build && npm test && npm run verify:package",
+    "format": "prettier --write src tests scripts package.json tsconfig.json .prettierrc.json vitest.config.ts",
+    "format:check": "prettier --check src tests scripts package.json tsconfig.json .prettierrc.json vitest.config.ts",
+    "verify:zcode": "node scripts/verify-zcode.mjs",
+    "prepack": "npm run build",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "files": [
+    "plugins/cmdr/",
+    "plugins/cmdr/dist/*.mjs",
+    "plugins/cmdr/THIRD_PARTY_NOTICES.txt",
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+    "marketplace.json",
+    "docs/"
+  ],
+  "bin": {
+    "cmdr": "plugins/cmdr/dist/cli.mjs",
+    "cmdr-mcp": "plugins/cmdr/dist/mcp.mjs",
+    "cmdr-hook": "plugins/cmdr/dist/hook.mjs",
+    "cmdr-daemon": "plugins/cmdr/dist/daemon.mjs"
+  }
+}
