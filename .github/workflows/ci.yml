@@ -1,0 +1,23 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Ensure generated artifacts stay out of Git
+        run: |
+          test -z "$(git ls-files plugins/cmdr/dist plugins/cmdr/THIRD_PARTY_NOTICES.txt)"
+          git diff --exit-code -- plugins/cmdr marketplace.json .claude-plugin/marketplace.json

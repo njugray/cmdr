@@ -1,82 +1,101 @@
-# cmdr 中文说明
+# cmdr
 
-[English README](../README.md) · [完整设计方案](cmdr-design-v1.md) · [许可证](../LICENSE)
+让本机已经打开的 **Claude Code、Codex、ZCode 和其他支持 MCP 的 Agent** 组成小队：指挥官发任务，执行方汇报、提问，消息按优先级持久化到 SQLite。
 
-**cmdr（Commander）用于协调同一台机器上的多个 Claude Code / Codex 会话。** 一个会话担任指挥官，负责拆分和派发任务；其他会话担任执行方，负责报到、执行、汇报和提问。所有通信通过本地 MCP 进程和唯一的 cmdr daemon 完成。
+[English](../README.md) · [设计方案](cmdr-design-v1.md) · [接入指南](agent-integration.md) · [实现与验证记录](implementation.md)
 
-> 当前分支仅包含 v1 设计文档；设计中描述的源码、插件包和发布产物尚未加入此分支。
+## 安装
 
-## 快速开始
+支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。Git 只保存源码和插件元数据，打包产物进入 npm 发布包，不提交到仓库。
 
-在所有参与会话中输入同一个容易记忆的小队名：
+源码安装先构建，再注册下面的插件市场：
+
+```sh
+npm ci
+npm run build
+```
+
+`npm pack` / `npm publish` 会在 prepack 阶段构建并把 4 个入口、插件资源和许可证声明装入包；安装包不依赖外部运行时 npm 包：
+
+```sh
+npm pack
+npm install --global ./cmdr-0.1.0.tgz
+cmdr --help
+```
+
+下面的 `/path/to/cmdr` 可以是已构建的源码目录，也可以是安装后的包目录（`$(npm root -g)/cmdr`）。未经构建的 Git 源码不能直接作为可运行插件安装。本次不执行 npm registry 发布。
+
+Claude Code：
+
+```sh
+claude plugin marketplace add /path/to/cmdr
+claude plugin install cmdr@cmdr
+```
+
+Codex：
+
+```sh
+codex plugin marketplace add /path/to/cmdr
+codex plugin add cmdr@cmdr
+```
+
+Codex 需要启用 hooks，并按提示信任 5 类 cmdr hook。`codex mcp list` 应出现 cmdr；安装后新开会话。没有 hooks 时仍可用 `read(wait)` 和工具返回的未读数协作。
+
+ZCode 桌面端：先打开工作区，在 **设置 → 插件 → 创建 → 添加插件市场** 选择本仓库或根目录 `marketplace.json`，安装 cmdr 后新开会话。原生 `.zcode-plugin` 清单负责 MCP、命令和技能，ZCode 自动发现 4 类受支持的 hooks。
+
+其他 Agent：
+
+```sh
+/path/to/cmdr/plugins/cmdr/bin/cmdr config --agent my-agent
+```
+
+把输出的 MCP 配置合并到宿主配置。任意合法的 Agent 标识都可接入，不会被冒充为 Codex；无需依赖特定宿主的插件或 hooks 协议。详细的身份、超时和多会话规则见[接入指南](agent-integration.md)。
+
+## 使用
+
+每个会话输入同一个名字：
 
 ```text
 /cmdr my-project
 ```
 
-第一个会话会创建 `my-project` 小队并成为指挥官；其他会话输入同一命令后，会以执行方身份加入已有小队。如需明确指定角色、使用 squad id 或接管 orphaned 小队，仍可使用底层 `join` 工具。
+第一个会话创建小队并成为指挥官，其余会话加入为执行方。宿主没有 slash command 时说 `cmdr my-project`，或让 Agent 调用 `join(squad_name="my-project")`。查找与创建在同一事务内完成，避免并发重名。已有孤立小队时，需要明确选择接管或加入。
 
-## 为什么不采用 cmux / herdr 式架构？
+执行方加入后 `report(ready)` 报到，说明目录、能力和当前上下文。指挥官通过 `list` 看成员，用 `send` 下发可验证任务。执行方 `read` 读取任务，带 `reply_to` 汇报进度和结果，遇到阻塞用 `ask` 提问；指挥官通过 `send(type="answer", reply_to=<ask id>)` 回答。
 
-[cmux](https://github.com/manaflow-ai/cmux) 是以 pane、标签页、通知和工作区体验为核心的 macOS 终端应用；[herdr](https://github.com/herdrdev/herdr) 是持有终端生命周期的后台 runtime，适合持久运行、断开重连、查看 pane 状态，并通过 CLI 或 socket 控制会话。它们解决的是「Agent 在哪个终端里运行，以及人如何管理这些终端」。
+双方使用 `read(wait=me.recommended_wait)` 待命，技能默认最多等待 40 轮。cmdr 不创建 Agent，也不主动唤醒已经结束回合的宿主；空闲成员可能需要用户去说一句“继续”。
 
-cmdr 解决的是更上一层的「Agent 会话如何可靠协作」：
+## 工具和运维
 
-- 不拥有终端或 pane，而是把身份绑定到 Agent 会话和小队。
-- 不向终端注入非结构化文本，而是通过 MCP 发送带类型、优先级、收件人和关联 id 的消息。
-- 使用 SQLite 队列保存未读状态，宿主或 daemon 重启后仍可恢复。
-- 使用 hooks 感知会话生命周期并提醒 Agent，不需要抓取屏幕输出。
-- 支持终端 CLI、IDE，以及 **Claude Desktop、Codex Desktop 等桌面端应用**；GUI 会话即使没有 tty 也能工作。
+固定 7 个 MCP 工具：`join`、`list`、`send`、`report`、`ask`、`read`、`leave`。读取即出队，`peek` 不出队，`history` 可回看。报告状态保存在 `message.data.status`。指挥官离队后小队变为 orphaned，可按原 ID 接管；`leave(dissolve=true)` 解散小队，但已经排队的消息仍可读取。
 
-两类方案可以互补：如果需要 cmux / herdr 的终端布局、持久化和人工观察能力，可以在其中运行 Agent，同时让 cmdr 负责跨会话的任务消息；如果 Agent 直接运行在桌面端，也可以只使用 cmdr。
-
-## 核心能力
-
-- 同一个插件同时面向 Claude Code 与 Codex，并覆盖 CLI 与桌面端应用。
-- 指挥官与执行方角色清晰，单个会话同一时刻只属于一个小队。
-- 每个会话拥有基于 SQLite 持久化的优先级消息队列。
-- `command`、`ask` 和 `answer` 优先于普通进度汇报。
-- hooks 在 Agent 下一次活动时提示未读消息，并可阻止遗漏重要消息后直接结束回合。
-- 执行方可通过长轮询待命，新消息到达后立即返回。
-- 只使用用户私有的本地 Unix socket，不监听网络端口。
-
-## 七个 MCP 工具
-
-| 工具 | 使用者 | 作用 |
-|---|---|---|
-| `join` | 双方 | 创建小队，或以指挥官/执行方身份加入小队 |
-| `list` | 双方 | 查看会话、小队、在线状态、活动状态和待处理任务 |
-| `send` | 指挥官 | 发送命令、答复或通知 |
-| `report` | 执行方 | 汇报 ready、working、blocked、done 或 failed 状态 |
-| `ask` | 执行方 | 向指挥官提问，并可选择等待答复 |
-| `read` | 双方 | 读取队列消息，或阻塞等待新消息 |
-| `leave` | 双方 | 离队、解散小队，或让小队进入可接管状态 |
-
-## 典型流程
-
-1. 在一个会话中以指挥官身份调用 `join`。
-2. 将返回的 squad 加入提示复制到其他 Claude Code / Codex 会话。
-3. 执行方加入后用 `report(ready)` 报告工作目录、能力和上下文。
-4. 指挥官通过 `send` 派发目标明确、可验证且包含验收标准的任务。
-5. 执行方执行任务，通过 `report` 汇报进展；遇到阻塞时使用 `ask`。
-6. 指挥官读取结果并回答问题，最后保留、交接或解散小队。
-
-示例提示词：
-
-```text
-以指挥官身份加入 cmdr，名字叫 planner。
+```sh
+plugins/cmdr/bin/cmdr status
+plugins/cmdr/bin/cmdr list --all
+plugins/cmdr/bin/cmdr tail --follow
+plugins/cmdr/bin/cmdr send --squad <id> --to tests "运行测试"
+plugins/cmdr/bin/cmdr read --session <sid> --peek
+plugins/cmdr/bin/cmdr daemon start
+plugins/cmdr/bin/cmdr daemon restart
+plugins/cmdr/bin/cmdr doctor
+plugins/cmdr/bin/cmdr config --agent zcode
+plugins/cmdr/bin/cmdr purge
 ```
 
-```text
-join cmdr squad k7m2pq as executor, name tests
+默认数据目录 `~/.cmdr/`，可用 `CMDR_HOME` 覆盖。目录 0700、Unix socket 0600；队列和历史默认保留 7 天。`purge` 只清理过期数据，`purge --all` 会删除全部消息与成员关系。配置示例见英文 README。
+
+消息持久化可以跨 daemon 重启恢复；工具返回消息后即视为投递，不提供“Agent 已完成处理”的确认。宿主在收到结果后崩溃时，可从 history 恢复。
+
+## 开发与验证
+
+```sh
+npm ci
+npm run check
+npm run verify:zcode
 ```
 
-## 设计范围
+`check` 包括格式、类型、打包、单元/真实进程测试，以及 npm tarball 在临时目录中的离线安装和 7 个工具验证。ZCode 验证可选，需要已安装桌面端；它在临时目录使用 App 内置运行时验证插件和 7 个 MCP 工具连接，不发起模型请求。
 
-v1 面向单机、单用户场景。它只协调已经存在的 Agent 会话，不负责创建或启动 Agent；不支持跨机器传输、多用户鉴权、Web UI 或执行方之间的直接通信。对于已经结束回合的空闲会话，v1 不使用未公开的主动唤醒机制，而是在该会话下一次活动时通过 hooks 提醒。
+插件版本由 `package.json` 统一生成。源码修改后需重新打包，并更新宿主缓存；同版本代码变更需手动重启 daemon。CI 验证 macOS/Linux、Node 22/24、npm 包可运行性，并确保生成产物没有被 Git 跟踪。
 
-完整的架构、数据模型、队列语义、身份会合、生命周期、插件 manifests、安装方式、CLI、数据库 schema、测试要求和已知风险，请阅读[《cmdr 设计方案（v1）》](cmdr-design-v1.md)。
-
-## 许可证
-
-[MIT](../LICENSE)
+设计文档中的旧试用记录不代表本次实现已经完成对应 GUI/模型实测；具体测试范围和待验证项以[实现记录](implementation.md)为准。

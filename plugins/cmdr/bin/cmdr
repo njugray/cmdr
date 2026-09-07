@@ -1,0 +1,4 @@
+#!/bin/sh
+CMDR_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export CMDR_BIN_DIR
+exec "$CMDR_BIN_DIR/cmdr-node" cli "$@"

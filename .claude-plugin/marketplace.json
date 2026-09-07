@@ -1,0 +1,15 @@
+{
+  "name": "cmdr",
+  "owner": {
+    "name": "njugray"
+  },
+  "plugins": [
+    {
+      "name": "cmdr",
+      "source": "./plugins/cmdr",
+      "version": "0.1.0",
+      "description": "Local multi-agent squads with durable messages, roles and lifecycle reminders."
+    }
+  ],
+  "description": "Local multi-agent squads for Claude Code, Codex, ZCode and other MCP hosts."
+}
