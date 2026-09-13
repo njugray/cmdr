@@ -1,3 +1,5 @@
+import { CmdrError } from '../shared/protocol.js';
+import { methods } from '../shared/methods.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { schemas, type Tool } from '../shared/schemas.js';
@@ -24,6 +26,11 @@ const clients = new Map<string, DaemonClient>();
 let binding = Promise.resolve();
 async function forSession(native?: string): Promise<DaemonClient> {
   if (!native) return client;
+  if (process.env.CMDR_SESSION_ID && native !== process.env.CMDR_SESSION_ID)
+    throw new CmdrError(
+      'INVALID_ARGUMENT',
+      'Session stamp conflicts with CMDR_SESSION_ID; use one process per explicit ID or stamps for a shared process.',
+    );
   // Serialize only identity binding; long polls on separate sessions stay concurrent.
   let selected = client;
   const operation = binding.then(async () => {
@@ -59,15 +66,6 @@ const descriptions: Record<Tool, string> = {
   read: 'Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Do at most 40 standby rounds.',
   leave:
     'Leave the squad. Commander departure orphans it; dissolve=true disbands it. Messages already queued remain readable.',
-};
-const methods: Record<Tool, string> = {
-  join: 'session.join',
-  list: 'session.list',
-  send: 'msg.send',
-  report: 'msg.report',
-  ask: 'msg.ask',
-  read: 'msg.read',
-  leave: 'session.leave',
 };
 for (const name of Object.keys(schemas) as Tool[]) {
   server.registerTool(

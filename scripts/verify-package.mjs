@@ -1,7 +1,7 @@
 // Build exactly as npm pack/publish would, then verify the dependency-free tarball.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync, cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
@@ -29,10 +29,14 @@ try {
     maxBuffer: 2 * 1024 * 1024,
   });
   const [pack] = JSON.parse(packed.stdout);
+  assert.equal(pack.name, pkg.name);
+  assert.equal(pack.version, pkg.version);
   const files = new Set(pack.files.map((file) => file.path));
   for (const name of ['cli', 'mcp', 'hook', 'daemon'])
     assert.ok(files.has(`plugins/cmdr/dist/${name}.mjs`), `Missing ${name} bundle`);
   for (const path of [
+    'LICENSE',
+    'README.md',
     'plugins/cmdr/THIRD_PARTY_NOTICES.txt',
     '.agents/plugins/marketplace.json',
     '.claude-plugin/marketplace.json',
@@ -59,10 +63,64 @@ try {
     ],
     { env },
   );
+  const installedRoot = join(prefix, 'lib/node_modules', pkg.name);
+  const installed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8'));
+  assert.equal(installed.name, 'cmdr-mcp');
+  assert.equal(installed.version, pkg.version);
+  assert.equal(installed.license, 'MIT');
+  for (const path of [
+    '.agents/plugins/marketplace.json',
+    '.claude-plugin/marketplace.json',
+    'marketplace.json',
+  ]) {
+    const marketplace = JSON.parse(readFileSync(join(installedRoot, path), 'utf8'));
+    for (const plugin of marketplace.plugins) {
+      const source = typeof plugin.source === 'string' ? plugin.source : plugin.source.path;
+      assert.ok(existsSync(join(installedRoot, source)), `Missing installed plugin: ${source}`);
+    }
+  }
   assert.ok(
     !existsSync(join(prefix, 'lib/node_modules', pkg.name, 'node_modules')),
     'Runtime must not need external dependencies',
   );
+  const pluginRoot = join(installedRoot, 'plugins/cmdr');
+  const doctor = JSON.parse((await run(cli, ['doctor', '--deep'], { env, timeout: 15000 })).stdout);
+  assert.equal(doctor.installation.ok, true);
+  assert.equal(doctor.mcp.ok, true);
+  const damaged = join(dir, 'damaged-plugin');
+  cpSync(pluginRoot, damaged, { recursive: true });
+  rmSync(join(damaged, 'dist/cli.mjs'));
+  try {
+    await run(join(damaged, 'bin/cmdr'), ['doctor'], { env });
+    assert.fail('Damaged doctor must fail');
+  } catch (e) {
+    assert.equal(e.code, 1);
+    assert.equal(JSON.parse(e.stdout).ok, false);
+  }
+  cpSync(pluginRoot, damaged, { recursive: true });
+  writeFileSync(join(damaged, 'dist/mcp.mjs'), '// corrupted');
+  try {
+    await run(cli, ['doctor', '--plugin-root', damaged], { env });
+    assert.fail('Corruption must fail');
+  } catch (e) {
+    assert.equal(e.code, 1);
+    assert.equal(JSON.parse(e.stdout).installation.ok, false);
+  }
+  cpSync(pluginRoot, damaged, { recursive: true });
+  assert.equal(
+    JSON.parse((await run(cli, ['doctor', '--plugin-root', damaged], { env })).stdout).installation
+      .ok,
+    true,
+  );
+  const baseline = JSON.parse(readFileSync('scripts/package-size-baseline.json', 'utf8'));
+  const sizeRatio = pack.size / baseline.compressed_bytes;
+  console.log(
+    `Package size: ${pack.size} bytes (${(sizeRatio * 100).toFixed(1)}% of ${baseline.version}); unpacked ${pack.unpackedSize}`,
+  );
+  if (sizeRatio > baseline.warn_ratio)
+    console.warn(
+      'Package grew beyond the review threshold; inspect bundle composition before release.',
+    );
   const help = await run(cli, ['--help'], { env });
   assert.match(help.stdout, /cmdr status/);
   const transport = new StdioClientTransport({

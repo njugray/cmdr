@@ -1,0 +1,63 @@
+# Installation and session troubleshooting
+
+The npm package is `cmdr-mcp`; the plugin and commands are `cmdr`. Install the complete package, register its root as the marketplace, refresh/reinstall the host cache, then start a new session. Do not copy only `bin/` or symlink `dist` from another global package. Git checkouts require `npm ci && npm run build` before registration.
+
+```sh
+npm install -g cmdr-mcp
+# Use this directory in the host's marketplace picker:
+npm root -g
+# Append /cmdr-mcp to the printed directory.
+cmdr doctor
+cmdr doctor --plugin-root /absolute/path/to/host/cache/cmdr
+cmdr doctor --plugin-root /absolute/path/to/host/cache/cmdr --deep
+```
+
+`--plugin-root` is the plugin directory containing `bin/`, `dist/` and the host manifests, not the marketplace root. A normal `doctor` inspects its own installation; a healthy global package does not prove the host cache is healthy. Target checks compare SHA-256 hashes and manifest versions against `dist/integrity.json`, and reject linked assets. This detects damage or mixed builds, not malicious replacement of both the files and checksums.
+
+The checker lives outside the bundles. If the selected plugin's CLI bundle is missing, its `bin/cmdr doctor` can still report the damage with Node installed. Alternatively use an intact global CLI to inspect that cache. If Node is missing, the shell wrapper reports the Node requirement; install Node >=22.5 and retry. A missing checker requires reinstalling the complete package.
+
+`doctor` exits nonzero for fatal installation failures. `--deep` additionally initializes MCP, verifies exactly seven tools, and calls `list` to check the daemon. It uses a temporary `CMDR_HOME`, an eight-second probe timeout and child cleanup. It does not join a squad or operate on the user's normal queues. Static checks do not start the normal daemon; reporting “daemon not running” is not itself an installation error.
+
+The states are distinct:
+
+| Observation | Meaning / next action |
+| --- | --- |
+| Plugin enabled | The host discovered configuration; this alone does not prove MCP connected. |
+| Seven tools exposed | MCP initialized; call a tool to check daemon access. |
+| No tools | Inspect the actual cache, reinstall from the built package and open a new session. |
+| `hook-*` is `unknown` | No observation has been recorded here; configuration alone cannot prove hooks ran. |
+| `hook-unavailable` | A hook could not reach a running daemon; hooks intentionally do not start it. |
+| `identity-conflict` | A hook session ID disagreed with explicit `CMDR_SESSION_ID`; correct the configuration. |
+| Protocol mismatch | Follow the message's client/daemon protocol information; update the cache, restart the matching daemon and reconnect the host. |
+| Member offline | No member connection is held; queued messages and membership are retained. This is normal between CLI calls. |
+
+`CMDR_HOME/logs/diagnostics/` contains bounded snapshots with timestamps and metadata only. Hook observations describe the most recently recorded host for each event, not every session; activity from a different host is not evidence that your current host's hooks work. Snapshots are rate limited (10 seconds; bootstrap failures 60 seconds), use restricted permissions, and never include message bodies, hook input, credentials or environment dumps. Unknown is not equivalent to failure. Logs cannot block hooks if unwritable. Upgrade and reconnection snapshots are best-effort diagnostics, not actionable queue messages or delivery guarantees.
+
+ZCode has four supported plugin hooks; SessionEnd is replaced by EOF detection. The PreToolUse event stamps its native `session_id` into `_cmdr_session`; the MCP bridge consumes it before forwarding. A shared MCP process requires a stamp on every call. Do not put one static `CMDR_SESSION_ID` on a shared process. With a dedicated process, its explicit ID must match hook events. No hooks means use a dedicated MCP process with a stable ID or the member CLI below; process/cwd cannot identify an arbitrary conversation.
+
+## Member CLI fallback
+
+`cmdr session` provides the seven member operations using the same schemas, role checks and reply routing as MCP. It requires an actual stable native ID; never invent one to impersonate a different session. For CLI-only use, the operator may deliberately assign and consistently reuse a unique ID for that independent member.
+
+```sh
+cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
+cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status ready "Ready"
+cmdr session read --agent zcode --native-id YOUR_SESSION_ID --wait 45
+cmdr session ask --agent zcode --native-id YOUR_SESSION_ID --wait 45 "What next?"
+cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --reply-to COMMAND_ID "Done"
+cmdr session leave --agent zcode --native-id YOUR_SESSION_ID
+```
+
+The first joiner is commander; report/ask require an executor. The commander uses:
+
+```sh
+cmdr session list --agent zcode --native-id COMMANDER_ID
+cmdr session send --agent zcode --native-id COMMANDER_ID --to MEMBER_SID "Run checks"
+cmdr session send --agent zcode --native-id COMMANDER_ID --to MEMBER_SID --type answer --reply-to ASK_ID "Proceed"
+```
+
+`CMDR_AGENT` and `CMDR_SESSION_ID` can supply identity instead of flags. Conflicting flags and environment are rejected. `--input` accepts the full operation's JSON schema, including `data`, `limit`, `since` and recipient arrays; `_cmdr_session` is reserved for MCP and is not accepted here. `--peek`, `--history`, `--all`, `--dissolve`, `--role` and `--squad` cover common cases. Options also provided as flags override matching JSON fields.
+
+Every command writes a JSON result, or a JSON error on stderr with a nonzero exit code. `--timeout` bounds the operation (default wait+10 seconds, maximum 3600 seconds); SIGINT/SIGTERM cancel it. A cancelled waiting read does not consume later arrivals. A cancelled ask may already have been sent: requests are never automatically replayed, and a lost response is not proof that the mutation failed. Inspect history before manually retrying.
+
+Short-lived commands are online only while connected. They do not leave squads on exit, keep a background process alive, wake a model, or claim task success when reading a message. Existing operator `cmdr send/read/list` commands retain their previous meaning. This CLI fallback still requires an intact runtime; it cannot compensate for all bundles being missing.

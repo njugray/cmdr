@@ -233,7 +233,10 @@ it('upgrades an older daemon while retaining memberships and queued work', async
     const upgraded = await host('generic', 'e');
     expect((await tool(upgraded, 'read')).messages[0].body).toBe('before upgrade');
     const info = JSON.parse(readFileSync(paths(home).info, 'utf8'));
-    expect(info.version).toBe('0.1.0');
+    expect(info.version).toBe(JSON.parse(readFileSync('package.json', 'utf8')).version);
+    const upgrade = JSON.parse(readFileSync(join(home, 'logs/diagnostics/upgrade.json'), 'utf8'));
+    expect(upgrade.to).toBe(info.version);
+    expect(upgrade.from).toBe('0.0.9');
     expect(info.pid).not.toBe(old.pid);
     expect((await tool(upgraded, 'list')).me.role).toBe('executor');
   } finally {

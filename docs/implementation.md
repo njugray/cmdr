@@ -1,6 +1,6 @@
 # Implementation and verification
 
-This is the first source implementation on the repository's previously documentation-only branch. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.1.0**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.1.1**, internal protocol **1**.
 
 ## Delivered behavior
 
@@ -16,7 +16,7 @@ This is the first source implementation on the repository's previously documenta
 
 Generated `dist` files and license notices are excluded from Git, including this PR branch's history. `prepack` builds the publishable npm package; explicit package files and executable mappings include the runtime and all host plugin metadata. Source marketplace installation requires a build first. CI packs the real tarball and installs it offline into a temporary prefix, testing the CLI and seven MCP tools without external runtime dependencies. No registry publication is performed by this PR.
 
-Tool schemas live in `shared/schemas.ts` separately from protocol/error types, so the CLI and hook do not pull in Zod just to handle RPC errors.
+Tool schemas live in `shared/schemas.ts` separately from protocol/error types, so the hook does not pull in Zod just to handle RPC errors. The member CLI now deliberately shares the tool schemas and includes their validator.
 
 `join(squad_name)` is the atomic shortcut. `role` becomes optional only for this form; explicit `join(role, squad, name)` is retained. A single daemon transaction and partial unique index enforce live-name uniqueness. An executor can explicitly take over its own orphaned squad without a temporary departure.
 
@@ -28,17 +28,18 @@ Reports include their status in `message.data.status`. Executor join replies ins
 
 Cancellation is propagated from MCP through the Unix socket (`rpc.cancel`). Disconnect/cancellation before a waiting read resumes preserves the queued message. The documented “read is delivery” rule still applies: there is no processing acknowledgement or exactly-once guarantee after a result has been returned. History remains available for recovery.
 
-`doctor` reports host/runtime availability, bundles, daemon, Codex MCP registration and hook enablement indicators. It does not guess Codex's private trust-file schema or invent a trusted-hook count: the output asks the user to verify the five hook approvals in the host UI.
+`doctor` reports host/runtime availability, bundles, daemon, Codex MCP registration and hook enablement indicators. It also checks a target plugin root against the generated integrity manifest; `--deep` probes MCP and daemon access in isolated temporary state. Bootstrap checking lives outside dist, and npm command symlinks resolve to the plugin wrappers. Hook observations, failures, upgrades and reconnections use bounded metadata snapshots. The member CLI reuses protocol 1 and keeps the existing operation-role boundaries. It does not guess Codex's private trust-file schema or invent a trusted-hook count: the output asks the user to verify the five hook approvals in the host UI.
 
 ## Automated verification
 
-The checked-in suite has **38 tests** across four files:
+The checked-in suite covers core, hooks/identity, utilities, real processes and release scenarios across five files:
 
 | Coverage | Evidence |
 | --- | --- |
 | Core | Atomic names, idempotency, role restrictions, arbitrary Agent IDs, ambiguous recipients, priority/peek/history, orphan/takeover/dissolve, inbox transfer, broadcast rollback, rate/size limits, persistence |
 | Hooks/identity | Provisional merge and reply routing, queue/waiter migration, clear rebinding, connection-count presence, reminder throttling, Stop attention rules, context restoration, TTL, cancellation |
 | Utilities | Host detection and namespaces, timeout negotiation, symlink/cwd handling, Codex/Claude titles, socket path fallback, lock recovery and config defaults |
+| Release | Member CLI workflow with hook-stamped MCP identity, cancellation and ask non-replay, missing/corrupted bundles, stale versions, bounded diagnostics, isolated handshake timeout and cleanup |
 | Real processes | Bundled MCP tool discovery, simultaneous daemon startup, messaging/ask/read, graceful restart, SIGKILL recovery, version upgrade, pooled ZCode session isolation, hook executable behavior, protocol rejection, end-to-end MCP cancellation |
 
 Validation commands:
@@ -51,7 +52,7 @@ claude plugin validate .
 npm run verify:zcode
 ```
 
-Codex plugin structure is also checked with the plugin-creator manifest validator. The local verification environment is macOS with Node 24.16.0 and the minimum supported Node 22.5.0. CI adds Linux and current Node 22 coverage.
+The original 0.1.0 validation also used the Codex plugin manifest validator and Node 22.5.0. For this 0.1.1 iteration, local validation uses macOS and Node 24.16.0; CI covers Linux/macOS and Node 22/24. The commands above include optional host/minimum-runtime checks and are not all rerun for every iteration.
 
 ## ZCode desktop runtime verification
 
@@ -63,6 +64,8 @@ On 2026-09-08, the installed **ZCode 3.11.2 (build 3.11.2.6792)** and its bundle
 - Namespaced server `plugin:cmdr:cmdr`: `status=connected`, `transport=stdio`, `toolCount=7`.
 
 The probe uses the actual app-server in desktop surface mode. It neither changes the user's normal plugin registry nor sends model requests. The shared-process session isolation and hook stamp/Stop contracts are exercised separately by automated process tests.
+
+On 2026-09-14, the 0.1.1 iteration additionally passed release-tarball installation into a fresh cache, integrity checks and seven-tool connection **after removing the source package directory**. The test accepts an unpacked package root or builds a real tarball by default. The hook-to-MCP identity path is tested using the real hook executable plus an MCP client, not an actual model turn.
 
 ## Remaining manual checks
 

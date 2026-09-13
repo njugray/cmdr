@@ -1,3 +1,4 @@
+import { diagnostic } from './diagnostics.js';
 import { connect } from 'node:net';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -41,7 +42,12 @@ export async function daemonConnection(
           timeout,
         );
         if (options.upgrade && newer(VERSION, hello.version)) {
-          await rpc.request('admin.shutdown', { reason: 'upgrade' }, timeout);
+          diagnostic(
+            'upgrade',
+            { from: hello.version, to: VERSION, protocol: hello.protocol },
+            options.home,
+          );
+          await rpc.request('admin.shutdown', { reason: 'upgrade', version: VERSION }, timeout);
           rpc.close();
           await sleep(100);
           continue;
@@ -117,8 +123,13 @@ export class DaemonClient {
       const rpc = await daemonConnection({ home: this.home, start: true, upgrade: true });
       try {
         const result = await rpc.request('session.register', this.registration);
+        if (this.stopped) {
+          rpc.close();
+          throw new CmdrError('REQUEST_CANCELLED');
+        }
         this.registration.sid = result.me.sid;
         this.rpc = rpc;
+        diagnostic('reconnected', { agent: this.registration.agent, to: VERSION }, this.home);
         this.backoff = 100;
         rpc.on('notification', (method, params) => {
           if (method === 'session.reset') rpc.close();

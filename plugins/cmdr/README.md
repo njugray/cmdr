@@ -13,3 +13,5 @@ Install a built checkout or the unpacked/installed npm package root as a marketp
 No active wakeups, Agent launching, remote transport or execution of message contents. Read marks delivery; use history if a host loses a previously delivered result. Idle recipients may need the user to say “continue”.
 
 [Installation and usage](https://github.com/njugray/cmdr#readme) · [Host integration](https://github.com/njugray/cmdr/blob/main/docs/agent-integration.md) · [Verification scope](https://github.com/njugray/cmdr/blob/main/docs/implementation.md)
+
+The npm package is `cmdr-mcp`. Use `cmdr doctor --plugin-root <actual cache directory> --deep` to verify a cached installation. Static integrity checks run without the target CLI bundle; deep probes use temporary state. `cmdr session` provides all seven member operations with explicit host/native identity when MCP tools are unavailable. See [troubleshooting](https://github.com/njugray/cmdr/blob/main/docs/troubleshooting.md) for cancellation, identity and hook diagnostics.

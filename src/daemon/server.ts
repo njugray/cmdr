@@ -29,16 +29,29 @@ export async function startDaemon(home?: string) {
     core.connect(ctx);
     let greeted = false;
     rpc.handler = async (method, params, signal) => {
-      if (!greeted && method !== 'hello') fail('PROTOCOL_MISMATCH', 'First request must be hello');
+      if (!greeted && method !== 'hello')
+        fail(
+          'PROTOCOL_MISMATCH',
+          `First request must be hello {protocol:${PROTOCOL}, version:<client version>}; daemon ${VERSION}. Use cmdr session commands or restart the host MCP connection.`,
+        );
       if (method === 'hello') {
         if (params.protocol !== PROTOCOL)
-          fail('PROTOCOL_MISMATCH', 'cmdr upgraded; restart the host session.');
+          fail(
+            'PROTOCOL_MISMATCH',
+            `Protocol mismatch: client ${String(params.protocol).slice(0, 20)}, daemon ${PROTOCOL} (${VERSION}). Update/reinstall the plugin cache, restart the daemon with the matching cmdr installation, then restart the host session.`,
+          );
         greeted = true;
         return { version: VERSION, protocol: PROTOCOL };
       }
       if (method === 'admin.shutdown') {
         if (ctx.kind !== 'cli' && params.reason !== 'upgrade') fail('ROLE_NOT_ALLOWED');
-        log(`shutdown requested: ${params.reason || 'operator'}`);
+        log(
+          `shutdown requested: ${String(params.reason || 'operator')
+            .replace(/[^a-z_-]/gi, '')
+            .slice(0, 40)}; from=${VERSION}; to=${String(params.version || 'unknown')
+            .replace(/[^a-z0-9.:-]/gi, '')
+            .slice(0, 80)}`,
+        );
         setTimeout(() => {
           void stop();
         }, 30);

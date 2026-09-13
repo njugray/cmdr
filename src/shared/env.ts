@@ -9,8 +9,17 @@ export function detectAgent(env = process.env, hook?: Record<string, unknown>): 
     return 'codex';
   return 'generic';
 }
-export function recommendedWait(agent: Agent, env = process.env) {
-  if (agent === 'claude') return 300;
+export function waitRecommendation(agent: Agent, env = process.env) {
   const timeout = Number(env.CMDR_TOOL_TIMEOUT_SEC);
-  return Number.isFinite(timeout) && timeout > 60 ? Math.min(300, Math.max(45, timeout - 15)) : 45;
+  if (Number.isFinite(timeout) && timeout > 0) {
+    return {
+      seconds: Math.min(300, Math.max(0, timeout - Math.min(15, timeout / 4))),
+      source: 'CMDR_TOOL_TIMEOUT_SEC',
+      timeout,
+    };
+  }
+  return { seconds: agent === 'claude' ? 300 : 45, source: 'host default', timeout: null };
+}
+export function recommendedWait(agent: Agent, env = process.env) {
+  return waitRecommendation(agent, env).seconds;
 }

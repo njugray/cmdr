@@ -1,6 +1,6 @@
 {
   "name": "cmdr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local multi-agent squads with durable messages, roles and lifecycle reminders.",
   "author": {
     "name": "njugray"

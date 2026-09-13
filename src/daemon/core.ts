@@ -83,10 +83,10 @@ export class Core {
     return this.store.sessions().filter((s) => s.squad_id === id);
   }
   private waitHint(s: Session) {
-    return (
-      [...this.contexts].find((c) => c.sid === s.sid && c.kind === 'mcp')?.waitHint ||
-      recommendedWait(s.agent, {})
-    );
+    const hints = [...this.contexts]
+      .filter((c) => c.sid === s.sid && c.kind === 'mcp' && c.waitHint !== undefined)
+      .map((c) => c.waitHint!);
+    return hints.length ? Math.min(...hints) : recommendedWait(s.agent, {});
   }
   private envelope(ctx: Context, value: any) {
     const s = this.me(ctx);
@@ -250,7 +250,7 @@ export class Core {
       ctx.sid = sid;
       ctx.agent = agent;
       ctx.waitHint = Number.isFinite(p.wait_hint)
-        ? Math.min(300, Math.max(1, p.wait_hint))
+        ? Math.min(300, Math.max(0, p.wait_hint))
         : recommendedWait(agent, {});
     }
     this.store.saveSession(s);
@@ -793,6 +793,16 @@ export class Core {
       if (method === 'admin.status')
         return {
           sessions: this.store.sessions().length,
+          provisional: this.store
+            .sessions()
+            .filter((s) => !s.native_id)
+            .map((s) => ({
+              sid: s.sid,
+              age_ms: Date.now() - s.created_at,
+              presence: s.presence,
+              role: s.role,
+              identity: 'provisional',
+            })),
           squads: this.store.squads().length,
           connections: [...this.contexts].filter((c) => c.kind === 'mcp').length,
         };
