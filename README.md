@@ -8,6 +8,13 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). Git contains source and plugin metadata; generated bundles are included only in npm distribution packages.
 
+The npm package is **`cmdr-mcp`**; the CLI and host plugin remain **`cmdr`**. Install with:
+
+```sh
+npm install --global cmdr-mcp
+cmdr --help
+```
+
 For a source checkout, build before registering the marketplace:
 
 ```sh
@@ -19,11 +26,11 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-0.1.0.tgz
+npm install --global ./cmdr-mcp-0.1.1.tgz
 cmdr --help
 ```
 
-Use the built checkout root, or the installed package root (`$(npm root -g)/cmdr`), as `/path/to/cmdr` below. A raw Git marketplace checkout without a build is not a runnable distribution. Registry publication is a separate release step; this PR does not publish a package.
+Use the built checkout root, or the installed package root (`$(npm root -g)/cmdr-mcp`), as `/path/to/cmdr` below. A raw Git marketplace checkout without a build is not a runnable distribution. See [Publishing](docs/publishing.md) for release preparation and publication.
 
 **Claude Code**
 
@@ -89,6 +96,19 @@ Exactly seven MCP tools are exposed, independently of the host:
 | `leave` | Leave, orphan or dissolve a squad |
 
 Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. There is no processing acknowledgement: if a host crashes after delivery, use history to recover the work.
+
+## Installation diagnostics and member CLI
+
+If cmdr tools are absent, inspect the host's actual plugin cache with `cmdr doctor --plugin-root /path/to/cached/plugin`. Add `--deep` to check MCP and daemon access in a temporary state directory. The checker works even when the inspected CLI bundle is missing. Refresh/reinstall damaged caches from the complete npm package and start a new session.
+
+`cmdr session join|list|send|report|ask|read|leave` provides member operations when MCP tools are unavailable. Supply `--agent` and `--native-id` (or `CMDR_AGENT`/`CMDR_SESSION_ID`); use the same native ID as the host. These commands retain membership and messages after exit, but are online only during the connection.
+
+```sh
+cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
+cmdr session read --agent zcode --native-id YOUR_SESSION_ID --wait 45
+```
+
+See [Troubleshooting and CLI examples](docs/troubleshooting.md) for role-specific operations, identity rules, cancellation and diagnostic limitations.
 
 ## Operator CLI
 

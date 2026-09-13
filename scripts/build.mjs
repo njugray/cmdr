@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { readFile, writeFile, mkdir, readdir, chmod } from 'node:fs/promises';
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -58,3 +59,32 @@ await writeFile(
   'plugins/cmdr/THIRD_PARTY_NOTICES.txt',
   notices.join('\n\n' + '='.repeat(72) + '\n\n') + '\n',
 );
+
+// Bind the complete plugin to one build. The checker deliberately lives outside dist.
+const pluginRoot = 'plugins/cmdr';
+const checksums = {};
+async function collect(dir = '') {
+  for (const entry of await readdir(`${pluginRoot}/${dir}`, { withFileTypes: true })) {
+    const path = dir ? `${dir}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) await collect(path);
+    else if (path !== 'dist/integrity.json' && path !== 'README.md') {
+      checksums[path] = createHash('sha256')
+        .update(await readFile(`${pluginRoot}/${path}`))
+        .digest('hex');
+    }
+  }
+}
+await collect();
+await writeFile(
+  `${pluginRoot}/dist/integrity.json`,
+  JSON.stringify({ version: pkg.version, files: checksums }, null, 2) + '\n',
+);
+const sizes = Object.fromEntries(
+  await Promise.all(
+    ['cli', 'mcp', 'hook', 'daemon'].map(async (name) => [
+      name,
+      (await readFile(`${pluginRoot}/dist/${name}.mjs`)).length,
+    ]),
+  ),
+);
+console.error('Bundle bytes:', JSON.stringify(sizes));

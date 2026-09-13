@@ -1,3 +1,4 @@
+import { diagnostic, observedHook } from '../shared/diagnostics.js';
 import { existsSync } from 'node:fs';
 import { paths } from '../shared/paths.js';
 import { detectAgent, cmdrTool } from '../shared/env.js';
@@ -6,7 +7,12 @@ import { ancestors } from '../mcp/terminal.js';
 export async function runHook(input: any, event = input.hook_event_name) {
   const agent = detectAgent(process.env, input),
     sid = `${agent}:${input.session_id}`;
+  observedHook(event, agent);
   if (!input.session_id) return;
+  if (process.env.CMDR_SESSION_ID && process.env.CMDR_SESSION_ID !== input.session_id) {
+    diagnostic('identity-conflict', { agent });
+    return;
+  }
   if (event === 'PreToolUse' && cmdrTool.test(input.tool_name || '')) {
     if (agent !== 'claude')
       return {
@@ -43,7 +49,8 @@ try {
   }
   const result = await runHook(JSON.parse(input), process.argv[2]);
   if (result) process.stdout.write(JSON.stringify(result) + '\n');
-} catch {
+} catch (e: any) {
+  diagnostic(e.code === 'DAEMON_UNAVAILABLE' ? 'hook-unavailable' : 'hook-error');
   /* hooks always fail open, including malformed input and absent daemon */
 }
 clearTimeout(timer);

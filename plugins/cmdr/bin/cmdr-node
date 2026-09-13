@@ -3,6 +3,20 @@
 CMDR_ENTRY=$1
 shift
 CMDR_RUNTIME_HOME=${CMDR_HOME:-"$HOME/.cmdr"}
+cmdr_failure() {
+  # One fixed-size record per failure type, rate limited across hook processes.
+  (umask 077
+    CMDR_LOG_DIR="$CMDR_RUNTIME_HOME/logs/diagnostics"
+    mkdir -p "$CMDR_LOG_DIR" || exit 0
+    CMDR_LOG_FILE="$CMDR_LOG_DIR/bootstrap-$1.json"
+    CMDR_NOW=$(date +%s)
+    CMDR_LAST=$(cat "$CMDR_LOG_DIR/bootstrap-$1.time" 2>/dev/null || true)
+    case "$CMDR_LAST" in ''|*[!0-9]*) CMDR_LAST=0 ;; esac
+    [ $((CMDR_NOW - CMDR_LAST)) -lt 60 ] && exit 0
+    printf '%s\n' "$CMDR_NOW" > "$CMDR_LOG_DIR/bootstrap-$1.time"
+    printf '{"code":"bootstrap-%s","at":%s000}\n' "$1" "$CMDR_NOW" > "$CMDR_LOG_FILE"
+  ) 2>/dev/null || true
+}
 CMDR_NODE=''
 if [ -r "$CMDR_RUNTIME_HOME/node-path" ]; then
   IFS= read -r CMDR_NODE < "$CMDR_RUNTIME_HOME/node-path"
@@ -22,13 +36,22 @@ if [ -z "$CMDR_NODE" ]; then
   fi
 fi
 if [ -z "$CMDR_NODE" ]; then
+  cmdr_failure node
   [ "$CMDR_ENTRY" = hook ] && exit 0
   echo 'cmdr requires Node.js >=22.5 (24 recommended). Install Node and retry.' >&2
   exit 1
 fi
 if [ ! -f "$CMDR_BIN_DIR/../dist/$CMDR_ENTRY.mjs" ]; then
+  cmdr_failure runtime
   [ "$CMDR_ENTRY" = hook ] && exit 0
-  echo 'cmdr runtime is not built. Run npm ci && npm run build in the repository, or install the built npm package.' >&2
+  if [ "$CMDR_ENTRY" = cli ] && [ "$1" = doctor ] && [ -f "$CMDR_BIN_DIR/cmdr-check.mjs" ]; then
+    exec "$CMDR_NODE" "$CMDR_BIN_DIR/cmdr-check.mjs" "$CMDR_BIN_DIR/.."
+  fi
+  echo 'cmdr runtime is not built. Run npm ci && npm run build in the repository, or install cmdr-mcp from npm, refresh/reinstall the host plugin cache and start a new session. Do not symlink another installation. Inspect this plugin with a working cmdr doctor --plugin-root PATH.' >&2
   exit 1
+fi
+if [ "$CMDR_ENTRY" = hook ]; then
+  "$CMDR_NODE" --experimental-sqlite --disable-warning=ExperimentalWarning "$CMDR_BIN_DIR/../dist/hook.mjs" "$@" 2>/dev/null || cmdr_failure runtime
+  exit 0
 fi
 exec "$CMDR_NODE" --experimental-sqlite --disable-warning=ExperimentalWarning "$CMDR_BIN_DIR/../dist/$CMDR_ENTRY.mjs" "$@"

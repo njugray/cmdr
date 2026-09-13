@@ -8,6 +8,13 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。Git 只保存源码和插件元数据，打包产物进入 npm 发布包，不提交到仓库。
 
+npm 包名为 **`cmdr-mcp`**，CLI 和宿主插件仍叫 **`cmdr`**。可直接安装：
+
+```sh
+npm install --global cmdr-mcp
+cmdr --help
+```
+
 源码安装先构建，再注册下面的插件市场：
 
 ```sh
@@ -19,11 +26,11 @@ npm run build
 
 ```sh
 npm pack
-npm install --global ./cmdr-0.1.0.tgz
+npm install --global ./cmdr-mcp-0.1.1.tgz
 cmdr --help
 ```
 
-下面的 `/path/to/cmdr` 可以是已构建的源码目录，也可以是安装后的包目录（`$(npm root -g)/cmdr`）。未经构建的 Git 源码不能直接作为可运行插件安装。本次不执行 npm registry 发布。
+下面的 `/path/to/cmdr` 可以是已构建的源码目录，也可以是安装后的包目录（`$(npm root -g)/cmdr-mcp`）。未经构建的 Git 源码不能直接作为可运行插件安装。发布准备和操作见[发布说明](publishing.md)。
 
 Claude Code：
 
@@ -99,3 +106,19 @@ npm run verify:zcode
 插件版本由 `package.json` 统一生成。源码修改后需重新打包，并更新宿主缓存；同版本代码变更需手动重启 daemon。CI 验证 macOS/Linux、Node 22/24、npm 包可运行性，并确保生成产物没有被 Git 跟踪。
 
 设计文档中的旧试用记录不代表本次实现已经完成对应 GUI/模型实测；具体测试范围和待验证项以[实现记录](implementation.md)为准。
+
+## 安装诊断与成员 CLI
+
+工具未出现时，用 `cmdr doctor --plugin-root /实际宿主缓存中的插件目录` 检查缓存里的文件校验和与版本。加 `--deep` 会在临时数据目录中完成 MCP 握手、7 个工具检查及 daemon 访问，不操作正常小队。基础检查器独立于 dist，CLI bundle 缺失时仍可诊断；Node 缺失时先安装 Node。修复采用完整 npm 包重新注册市场、刷新/重装缓存并打开新会话，不跨安装目录链接 dist。
+
+`cmdr session join|list|send|report|ask|read|leave` 提供完整成员操作，原有运维命令含义不变。显式传 `--agent`、`--native-id`，或设置 `CMDR_AGENT`、`CMDR_SESSION_ID`；与 MCP/hook 共享会话时必须使用相同原生 ID，共享 MCP 进程不能配置一个固定 ID。CLI 每次调用只在连接期间在线，退出后保留成员关系和队列，不主动唤醒模型。
+
+```sh
+cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
+cmdr session read --agent zcode --native-id YOUR_SESSION_ID --wait 45
+cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --reply-to COMMAND_ID "已完成"
+```
+
+首个入队者是指挥官，report/ask 由执行者调用。结果为 JSON，失败使用非零退出码。`--input` 接受该操作完整 JSON 参数；`--timeout`、SIGINT/SIGTERM 可取消等待，等待中的 read 取消不消费后续消息。ask 取消前可能已发送，不能盲目重试。
+
+`CMDR_HOME/logs/diagnostics/` 保存有界、限频的元数据快照。hook 仍失败放行，不写消息正文；unknown 表示尚未观察到，配置存在不代表真实触发。doctor 显示 provisional 会话及等待推荐来源；升级诊断不进入任务消息队列。详细案例见[排障说明](troubleshooting.md)。

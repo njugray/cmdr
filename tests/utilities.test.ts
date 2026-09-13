@@ -35,6 +35,9 @@ it('detects hosts without treating generic clients as Codex', () => {
 });
 it('negotiates wait budgets conservatively', () => {
   expect(recommendedWait('claude', {})).toBe(300);
+  expect(recommendedWait('claude', { CMDR_TOOL_TIMEOUT_SEC: '20' })).toBe(15);
+  expect(recommendedWait('generic', { CMDR_TOOL_TIMEOUT_SEC: '1' })).toBe(0.75);
+  expect(recommendedWait('generic', { CMDR_TOOL_TIMEOUT_SEC: '-1' })).toBe(45);
   expect(recommendedWait('codex', {})).toBe(45);
   expect(recommendedWait('zcode', { CMDR_TOOL_TIMEOUT_SEC: '600' })).toBe(300);
   expect(recommendedWait('custom', { CMDR_TOOL_TIMEOUT_SEC: '120' })).toBe(105);

@@ -150,3 +150,16 @@ it('renews reminders for unread high-priority messages after the reminder interv
   expect(existsSync(f.p.flag(e.sid!))).toBe(true);
   expect((await f.hook(e, 'PreToolUse')).inject).toContain('unread');
 });
+
+it('uses the smallest connected timeout hint and removes bound provisional diagnostics', async () => {
+  f = fixture();
+  const a = await f.session('generic', 'same', { wait_hint: 300 });
+  await f.session('generic', 'same', { wait_hint: 0.5 });
+  expect((await f.core.handle(a, 'session.list')).me.recommended_wait).toBe(0.5);
+  const p = await f.session('generic', null);
+  const operator = { notify: () => {} };
+  await f.core.handle(operator, 'session.register', { kind: 'cli' });
+  expect((await f.core.handle(operator, 'admin.status')).provisional).toHaveLength(1);
+  await f.core.handle(p, 'session.identify', { native_id: 'confirmed' });
+  expect((await f.core.handle(operator, 'admin.status')).provisional).toHaveLength(0);
+});

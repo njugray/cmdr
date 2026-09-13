@@ -1,4 +1,12 @@
 #!/bin/sh
-CMDR_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CMDR_SCRIPT=$0
+while [ -L "$CMDR_SCRIPT" ]; do
+  CMDR_LINK=$(readlink "$CMDR_SCRIPT") || exit 1
+  case "$CMDR_LINK" in
+    /*) CMDR_SCRIPT=$CMDR_LINK ;;
+    *) CMDR_SCRIPT=$(dirname -- "$CMDR_SCRIPT")/$CMDR_LINK ;;
+  esac
+done
+CMDR_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$CMDR_SCRIPT")" && pwd)
 export CMDR_BIN_DIR
 exec "$CMDR_BIN_DIR/cmdr-node" hook "$@"

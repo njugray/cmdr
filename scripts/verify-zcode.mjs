@@ -1,7 +1,15 @@
 // Optional smoke test against an installed ZCode desktop runtime; no model calls.
 // All plugin state and the test workspace are isolated under a temporary directory.
-import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { spawn, execFileSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -11,6 +19,25 @@ const runtime =
 if (!existsSync(runtime))
   throw new Error('Set ZCODE_RUNTIME_PATH to the installed desktop app’s glm/zcode.cjs.');
 const dir = mkdtempSync(join(tmpdir(), 'cmdr-zcode-'));
+const sourceRoot = join(dir, 'source');
+mkdirSync(sourceRoot);
+const input = process.argv[2];
+let packageRoot;
+if (input) {
+  // Accept an already unpacked package root; never rename or mutate the caller's directory.
+  const { cpSync } = await import('node:fs');
+  cpSync(resolve(input), join(sourceRoot, 'package'), { recursive: true });
+  packageRoot = join(sourceRoot, 'package');
+} else {
+  const [pack] = JSON.parse(
+    execFileSync('npm', ['pack', '--json', '--pack-destination', dir], {
+      encoding: 'utf8',
+      env: { ...process.env, npm_config_cache: join(dir, 'npm-cache'), npm_config_offline: 'true' },
+    }),
+  );
+  execFileSync('tar', ['-xzf', join(dir, pack.filename), '-C', sourceRoot]);
+  packageRoot = join(sourceRoot, 'package');
+}
 const workspace = { workspacePath: dir, workspaceKey: 'cmdr-smoke' };
 mkdirSync(join(dir, '.zcode'));
 writeFileSync(
@@ -69,12 +96,12 @@ function request(method, params) {
 try {
   const validation = await request('plugins/validate', {
     workspace,
-    source: resolve('.'),
+    source: packageRoot,
     pluginName: 'cmdr',
   });
   assert.equal(validation.ok, true, JSON.stringify(validation.diagnostics));
   console.log('ZCode native plugin validation passed.');
-  await request('plugins/marketplace/add', { workspace, source: resolve('.') });
+  await request('plugins/marketplace/add', { workspace, source: packageRoot });
   const install = await request('plugins/install', {
     workspace,
     marketplace: 'cmdr',
@@ -90,6 +117,13 @@ try {
     install.installedPlugins.find((p) => p.name === 'cmdr')?.installPath.startsWith(dir),
     'Plugin must be installed in the temporary runtime only',
   );
+  const installedPath = install.installedPlugins.find((p) => p.name === 'cmdr').installPath;
+  const integrity = JSON.parse(
+    execFileSync(process.execPath, [join(installedPath, 'bin/cmdr-check.mjs'), installedPath], {
+      encoding: 'utf8',
+    }),
+  );
+  assert.equal(integrity.ok, true);
   const description = await request('plugins/describe', {
     workspace,
     marketplace: 'cmdr',
@@ -99,6 +133,7 @@ try {
     'ZCode discovered components:',
     description.components.map((c) => `${c.kind}=${c.items.length}`).join(', '),
   );
+  renameSync(sourceRoot, join(dir, 'source-removed'));
   const result = await request('mcp/list', { workspace, mode: 'connect', mcpServers: [] });
   const status = result.statuses['plugin:cmdr:cmdr'];
   console.log('ZCode cmdr MCP status:', JSON.stringify(status));
@@ -106,7 +141,7 @@ try {
   assert.equal(status.status, 'connected');
   assert.equal(status.toolCount, 7);
   console.log(
-    'ZCode desktop runtime connected to all seven cmdr tools. No model request was made.',
+    'ZCode cached release passed integrity and connected to seven tools with the source directory removed. No model request was made.',
   );
 } finally {
   for (const p of pending.values()) clearTimeout(p.timer);

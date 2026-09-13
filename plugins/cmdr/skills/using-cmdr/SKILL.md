@@ -2,6 +2,8 @@
 name: using-cmdr
 description: Connect existing local Agent sessions using cmdr, especially /cmdr <name>, cmdr <name>, or requests to create or join a squad.
 ---
+If the seven cmdr tools are missing, do not call an unavailable join or reverse-engineer the socket protocol. Inspect the actual cached plugin using `cmdr doctor --plugin-root <cache plugin directory>`; add `--deep` for an isolated MCP probe. Reinstall from the complete `cmdr-mcp` npm package, refresh the host cache and start a new session. Never link another installation's dist. With an intact runtime but unavailable MCP tools, `cmdr session` supports the same seven member operations using `--agent` and a known `--native-id`. Use the host's real session ID, never a guessed shared ID. Without that identity, explain what is missing instead of fabricating one. Short CLI connections retain membership but do not wake the host or stay online after exit.
+
 For `/cmdr <name>` or `cmdr <name>`, call join(squad_name=<name>). This atomically creates a named squad as commander or joins an existing active squad as executor. Do not split lookup and creation into two tools. An orphaned squad requires the user's choice: take over or join as executor, then call join(role, squad=<id>). Explicit role/ID requests use join(role, squad, name) directly.
 
 cmdr works with Claude Code, Codex, ZCode and other MCP hosts. Sessions share one local daemon. A session has one role in one squad; cmdr never starts agents or executes messages.
