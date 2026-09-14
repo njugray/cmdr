@@ -5331,7 +5331,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.1.1" : "0.1.0";
+var VERSION = true ? "0.1.2" : "0.1.0";
 var PROTOCOL = 1;
 
 // src/daemon/server.ts

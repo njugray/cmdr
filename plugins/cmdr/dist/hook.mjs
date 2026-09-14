@@ -243,7 +243,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.1.1" : "0.1.0";
+var VERSION = true ? "0.1.2" : "0.1.0";
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
