@@ -52,3 +52,18 @@ cmdr --help
 按照 [安装说明](README.zh-CN.md#安装) 注册安装后的包根目录。已安装宿主有插件缓存，升级后需要刷新或重装；同版本测试代码变动需要重启对应测试 daemon。
 
 npm 命令行为参考：[npm publish 官方文档](https://docs.npmjs.com/cli/v11/commands/npm-publish/)。
+
+## Marketplace 直接安装分发
+
+开发分支继续忽略生成产物。`.github/workflows/marketplace.yml` 在 GitHub Release 发布时运行，也可手动运行 **Publish marketplace**。工作流先完成 `npm run check`，再通过 `npm pack` 生成并校验完整包，最后把解包内容提交到独立的 `marketplace` 分支。该分支只存分发文件，不含开发依赖；各 marketplace 的相对路径直接指向带 `dist/` 的插件目录。更新保留分支历史，不强制推送。
+
+首次部署：提交并推送本次工作流及脚本，在 GitHub Actions 手动运行 **Publish marketplace**，确认成功后再向用户提供 `njugray/cmdr#marketplace`。后续发布 Release 自动更新。工作流需要仓库 `contents: write` 权限；分支保护如禁止自动推送，应由维护者调整。仅本地生成文件不会使远端安装地址生效。
+
+本地验证分发目录（目标目录必须不存在）：
+
+```sh
+npm run prepare:marketplace -- /tmp/cmdr-marketplace-release
+npm run verify:zcode -- /tmp/cmdr-marketplace-release
+```
+
+ZCode 从带 `#marketplace` 的 GitHub 来源选择分支，然后按相对路径缓存完整插件。首次使用仍需要系统提供 Node.js ≥22.5；无需用户运行 npm 安装或构建。不要把默认开发分支的 Git 地址作为成品分发源。

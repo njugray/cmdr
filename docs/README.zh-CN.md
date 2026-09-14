@@ -6,7 +6,7 @@
 
 ## 安装
 
-支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。Git 只保存源码和插件元数据，打包产物进入 npm 发布包，不提交到仓库。
+支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
 npm 包名为 **`cmdr-mcp`**，CLI 和宿主插件仍叫 **`cmdr`**。可直接安装：
 
@@ -48,7 +48,9 @@ codex plugin add cmdr@cmdr
 
 Codex 需要启用 hooks，并按提示信任 5 类 cmdr hook。`codex mcp list` 应出现 cmdr；安装后新开会话。没有 hooks 时仍可用 `read(wait)` 和工具返回的未读数协作。
 
-ZCode 桌面端：先打开工作区，在 **设置 → 插件 → 创建 → 添加插件市场** 选择本仓库或根目录 `marketplace.json`，安装 cmdr 后新开会话。原生 `.zcode-plugin` 清单负责 MCP、命令和技能，ZCode 自动发现 4 类受支持的 hooks。
+ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添加插件市场** 输入 **`njugray/cmdr#marketplace`**，安装 cmdr 后新开会话。发布分支自带完整运行时，无需全局安装 npm 包或本地构建；仍需 Node.js ≥22.5。维护者首次运行 **Publish marketplace** 工作流发布该分支后，这个地址才可用。
+
+原生 `.zcode-plugin` 清单负责 MCP、命令和技能，ZCode 自动发现 4 类受支持的 hooks。本地开发仍可选择已构建的仓库或已安装 npm 包根目录。
 
 其他 Agent：
 

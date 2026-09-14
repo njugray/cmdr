@@ -6,7 +6,7 @@
 
 ## Quick start
 
-Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). Git contains source and plugin metadata; generated bundles are included only in npm distribution packages.
+Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
 The npm package is **`cmdr-mcp`**; the CLI and host plugin remain **`cmdr`**. Install with:
 
@@ -50,7 +50,9 @@ Enable Codex hooks and trust the five cmdr hooks when prompted. Without hooks, t
 
 **ZCode desktop**
 
-Open a workspace, then **Settings → Plugins → Create → Add plugin marketplace**. Choose this repository (or its root `marketplace.json`), install **cmdr**, and start a new session. The native `.zcode-plugin` manifest sets up MCP, commands and skills; ZCode discovers the four supported lifecycle hooks automatically. See [ZCode setup and verification](docs/agent-integration.md#zcode-desktop).
+Open a workspace, then **Settings → Plugins → Create → Add plugin marketplace**. Enter **`njugray/cmdr#marketplace`**, install **cmdr**, and start a new session. This release branch includes the complete runtime: no global npm install or local build is required. Node.js ≥22.5 is still required. The maintainer must publish the branch once using the **Publish marketplace** workflow before this source is available.
+
+The native `.zcode-plugin` manifest sets up MCP, commands and skills; ZCode discovers the four supported lifecycle hooks automatically. Local developers can still select a built checkout or installed npm package root. See [ZCode setup and verification](docs/agent-integration.md#zcode-desktop).
 
 **Other Agents**
 

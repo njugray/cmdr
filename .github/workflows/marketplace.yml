@@ -1,0 +1,46 @@
+name: Publish marketplace
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-marketplace
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Stage complete distribution
+        run: node scripts/prepare-marketplace.mjs "$RUNNER_TEMP/cmdr-marketplace"
+      - name: Update generated marketplace branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/cmdr-marketplace"
+          git init -b marketplace
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          gh auth setup-git
+          if git ls-remote --exit-code --heads origin marketplace; then
+            git fetch --depth=1 origin marketplace
+            git reset --mixed FETCH_HEAD
+          else
+            status=$?
+            [ "$status" -eq 2 ] || exit "$status"
+          fi
+          git add --all
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Publish marketplace from ${GITHUB_SHA}"
+          git push origin HEAD:refs/heads/marketplace

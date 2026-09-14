@@ -13,6 +13,7 @@
     "check": "npm run format:check && npm run typecheck && npm run build && npm test && npm run verify:package",
     "format": "prettier --write src tests scripts plugins/cmdr/bin/*.mjs package.json tsconfig.json .prettierrc.json vitest.config.ts",
     "format:check": "prettier --check src tests scripts plugins/cmdr/bin/*.mjs package.json tsconfig.json .prettierrc.json vitest.config.ts",
+    "prepare:marketplace": "node scripts/prepare-marketplace.mjs",
     "verify:zcode": "node scripts/verify-zcode.mjs",
     "prepack": "npm run build",
     "verify:package": "node scripts/verify-package.mjs"

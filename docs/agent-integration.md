@@ -47,7 +47,9 @@ Hosts can also speak the internal NDJSON protocol over the Unix socket. Begin wi
 
 ## ZCode desktop
 
-**Recommended: native plugin installation.** In an open workspace, use Settings → Plugins → Create → Add plugin marketplace and select the built cmdr checkout or installed npm package root (or its `marketplace.json`). Install cmdr and start a fresh session. The native `.zcode-plugin/plugin.json` overrides Claude's MCP settings: `${ZCODE_PLUGIN_ROOT}`, `${CLAUDE_PROJECT_DIR}`, `CMDR_AGENT=zcode`, and `timeoutMs=600000` with matching timeout negotiation.
+**Recommended: native plugin installation.** In an open workspace, use Settings → Plugins → Create → Add plugin marketplace and enter `njugray/cmdr#marketplace`. The generated release branch includes all bundles and license notices; users do not need npm installation or a local build. The maintainer must run the Publish marketplace workflow once before this source becomes available. Install cmdr and start a fresh session. Local development can use a built checkout or installed npm package root instead.
+
+The native `.zcode-plugin/plugin.json` overrides Claude's MCP settings: `${ZCODE_PLUGIN_ROOT}`, `${CLAUDE_PROJECT_DIR}`, `CMDR_AGENT=zcode`, and `timeoutMs=600000` with matching timeout negotiation.
 
 The shared hook file produces four runnable ZCode hooks: SessionStart, UserPromptSubmit, PreToolUse and Stop. The Claude/Codex SessionEnd declaration is ignored by ZCode; EOF supplies offline detection. `ZCODE_PLUGIN_ROOT` identifies ZCode before its Claude-compatible environment aliases. Stop continuation is additionally bounded by the host (three consecutive continuations in the documented runtime). The plugin does not register the same hook file twice.
 

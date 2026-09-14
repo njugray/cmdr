@@ -35,6 +35,19 @@ The states are distinct:
 
 ZCode has four supported plugin hooks; SessionEnd is replaced by EOF detection. The PreToolUse event stamps its native `session_id` into `_cmdr_session`; the MCP bridge consumes it before forwarding. A shared MCP process requires a stamp on every call. Do not put one static `CMDR_SESSION_ID` on a shared process. With a dedicated process, its explicit ID must match hook events. No hooks means use a dedicated MCP process with a stable ID or the member CLI below; process/cwd cannot identify an arbitrary conversation.
 
+## ZCode cache has no `dist/`
+
+If `bin/cmdr-mcp` exists but `dist/mcp.mjs` is missing, the launcher exits before MCP initializes, so none of the seven tools can register. A working global `cmdr` uses a separate installation and does not repair this cache. Missing `dist/integrity.json` also prevents verification of otherwise present manifests; this alone does not prove those manifests were modified. Hooks fail open and record a rate-limited `bootstrap-runtime` diagnostic when possible, so a quiet hook does not establish a healthy installation.
+
+Check the registered marketplace source first. An unbuilt Git checkout contains manifests and launchers but no generated runtime. The missing files alone cannot distinguish an unbuilt source from an incomplete cache copy.
+
+1. In ZCode's marketplace settings, replace the source with `njugray/cmdr#marketplace` (available after the maintainer publishes that branch). This source includes the runtime.
+2. Refresh/reinstall cmdr. Reinstalling from the same unbuilt source will reproduce the failure. For offline/local installation, use the complete installed npm package root or a built checkout.
+3. Run `cmdr doctor --plugin-root /actual/zcode/cache/plugin --deep` against the resulting cache. Resolve static installation failures before expecting a successful deep probe.
+4. Start a fresh ZCode session and confirm the cmdr tools appear. Do not link another installation's `dist/` into the cache or restart an unrelated shared daemon to repair missing plugin files.
+
+The repository's `npm run verify:zcode` exercises installation from an npm tarball in temporary storage, checks cache integrity, and verifies seven MCP tools after removing the source directory. It does not inspect or repair an existing user's cache.
+
 ## Member CLI fallback
 
 `cmdr session` provides the seven member operations using the same schemas, role checks and reply routing as MCP. It requires an actual stable native ID; never invent one to impersonate a different session. For CLI-only use, the operator may deliberately assign and consistently reuse a unique ID for that independent member.
