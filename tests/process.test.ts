@@ -129,14 +129,20 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
   expect(existsSync(paths(home).socket)).toBe(false);
   const c = await host('zcode', 's');
   await tool(c, 'join', { squad_name: 'x' });
-  const restored = JSON.parse(
-    await invoke(
-      'SessionStart',
-      { session_id: 's', source: 'compact', cwd: '/project' },
-      { CMDR_AGENT: 'zcode' },
-    ),
-  );
-  expect(restored.hookSpecificOutput.additionalContext).toContain('commander');
+  // Hooks intentionally fail open after a short deadline; a loaded runner may time out.
+  await expect
+    .poll(
+      async () => {
+        const output = await invoke(
+          'SessionStart',
+          { session_id: 's', source: 'compact', cwd: '/project' },
+          { CMDR_AGENT: 'zcode' },
+        );
+        return output ? JSON.parse(output).hookSpecificOutput.additionalContext : '';
+      },
+      { timeout: 3000 },
+    )
+    .toContain('commander');
 }, 10000);
 it('requires hello before RPC operations and rejects incompatible protocol versions', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-rpc-'));
@@ -169,6 +175,9 @@ it('propagates MCP cancellation without consuming a later message', async () => 
   await new Promise((r) => setTimeout(r, 50));
   controller.abort();
   await rejected;
+  // Local abort rejection does not acknowledge remote cancellation. A round trip on
+  // the same MCP/daemon connection orders the cancel before the other peer sends.
+  await tool(e, 'list');
   await tool(c, 'send', { to: 'all', message: 'after cancellation' });
   expect((await tool(e, 'read')).messages[0].body).toBe('after cancellation');
 }, 10000);

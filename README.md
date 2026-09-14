@@ -26,7 +26,7 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.1.1.tgz
+npm install --global ./cmdr-mcp-0.1.2.tgz
 cmdr --help
 ```
 
