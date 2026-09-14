@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cmdr": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/cmdr-mcp",
+      "env": {
+        "CMDR_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
+      }
+    }
+  }
+}

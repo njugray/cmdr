@@ -1,0 +1,69 @@
+{
+  "name": "cmdr-mcp",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Local multi-agent squads for Claude Code, Codex, ZCode and any MCP host",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run format:check && npm run typecheck && npm run build && npm test && npm run verify:package",
+    "format": "prettier --write src tests scripts plugins/cmdr/bin/*.mjs package.json tsconfig.json .prettierrc.json vitest.config.ts",
+    "format:check": "prettier --check src tests scripts plugins/cmdr/bin/*.mjs package.json tsconfig.json .prettierrc.json vitest.config.ts",
+    "prepare:marketplace": "node scripts/prepare-marketplace.mjs",
+    "verify:zcode": "node scripts/verify-zcode.mjs",
+    "prepack": "npm run build",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "files": [
+    "plugins/cmdr/",
+    "plugins/cmdr/dist/*.mjs",
+    "plugins/cmdr/THIRD_PARTY_NOTICES.txt",
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+    "marketplace.json",
+    "docs/"
+  ],
+  "bin": {
+    "cmdr": "plugins/cmdr/bin/cmdr",
+    "cmdr-mcp": "plugins/cmdr/bin/cmdr-mcp",
+    "cmdr-hook": "plugins/cmdr/bin/cmdr-hook",
+    "cmdr-daemon": "plugins/cmdr/bin/cmdr-daemon"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/njugray/cmdr.git"
+  },
+  "homepage": "https://github.com/njugray/cmdr#readme",
+  "bugs": {
+    "url": "https://github.com/njugray/cmdr/issues"
+  },
+  "keywords": [
+    "mcp",
+    "agents",
+    "multi-agent",
+    "coordination",
+    "cli"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

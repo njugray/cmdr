@@ -1,0 +1,20 @@
+{
+  "name": "cmdr",
+  "interface": {
+    "displayName": "cmdr"
+  },
+  "plugins": [
+    {
+      "name": "cmdr",
+      "source": {
+        "source": "local",
+        "path": "./plugins/cmdr"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

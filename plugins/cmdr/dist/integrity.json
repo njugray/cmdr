@@ -1,0 +1,25 @@
+{
+  "version": "0.1.1",
+  "files": {
+    ".claude-plugin/plugin.json": "a637c6539adecee58b3c5c0de4ffce54a4cf1b5c0803e62b26d94738122c3412",
+    ".codex-plugin/plugin.json": "3e5903af41e46c558dddbe79808cfbea1723bb3681520a9cce58846e43f61d0b",
+    ".mcp.json": "34e310a2874c8fda625745672a54df19614f32dabd2be4013f8ce871260e88c4",
+    ".zcode-plugin/plugin.json": "1440cd8363e396240baf9ed0bb135d3ff63364466307947b2c30e20afb998f38",
+    "THIRD_PARTY_NOTICES.txt": "e68f09a58095667d51b337c7e0b57b0600e9c69c0cfa494a678446536df1fbaf",
+    "bin/cmdr": "be6ea6b84ce121738ca729e9c6dbfb87bbf349a84d251acc711e3ea11f8dd8fd",
+    "bin/cmdr-check.mjs": "6192d158606b253637635416e706f8ba782b8e8d63c1613c76f5011c09a58a85",
+    "bin/cmdr-daemon": "7f8ed3a755f975751ddda077242adf661834dddbb8be7d3a88caee0c70cce5db",
+    "bin/cmdr-hook": "e1fa5950325775e467e4e01aeff3c5cb8c1dba35c4535d7cb569f658f95e7f15",
+    "bin/cmdr-mcp": "356bea13c2b82075c09fd663106791edab9e06fdb04fc679a98de33514b10a83",
+    "bin/cmdr-node": "c0e2764891a57ff031e201a1940fb851fa352d817c86caab544232e03923ae69",
+    "commands/cmdr.md": "d0b3f3fb147b01a675c8eebbefe3a09dbec04e32c55d93f7e90eac9502323499",
+    "dist/cli.mjs": "b32d84bdb56c2183037d679ac363964b27ca464fbe6dd32a1062b264c84058ec",
+    "dist/daemon.mjs": "459fb52433eb33efdbc285ba756696fca43256cf9fe907a736121f5b70a2f612",
+    "dist/hook.mjs": "dc1d0dcaf07f0d818fe227a5d2f231ad36e319010c3f7eb6603a23c91a46f37f",
+    "dist/mcp.mjs": "a6393894e46f45997be6da287c922d2b299ae2450225594024f1afa529424adf",
+    "hooks/hooks.json": "6ff937910fc04eb81db4a84dfeb91a92ab971364d684a45a85f3a9953eb21259",
+    "skills/cmdr-commander/SKILL.md": "e83103b40d906d6db505512a3ab2bcc06fea1038d5821054f436c76079f5676d",
+    "skills/cmdr-executor/SKILL.md": "a5deaee2579f0dfb35af0e1f10a3137185f6a9a1c6acadc05633678006ce1549",
+    "skills/using-cmdr/SKILL.md": "24109c5b5500604e7368443f6f14b3f6cfc8e0eb8661fde45e91d9916c342236"
+  }
+}

@@ -1,0 +1,57 @@
+#!/bin/sh
+# All installed entry points are dependency-free; only Node >=22.5 is needed.
+CMDR_ENTRY=$1
+shift
+CMDR_RUNTIME_HOME=${CMDR_HOME:-"$HOME/.cmdr"}
+cmdr_failure() {
+  # One fixed-size record per failure type, rate limited across hook processes.
+  (umask 077
+    CMDR_LOG_DIR="$CMDR_RUNTIME_HOME/logs/diagnostics"
+    mkdir -p "$CMDR_LOG_DIR" || exit 0
+    CMDR_LOG_FILE="$CMDR_LOG_DIR/bootstrap-$1.json"
+    CMDR_NOW=$(date +%s)
+    CMDR_LAST=$(cat "$CMDR_LOG_DIR/bootstrap-$1.time" 2>/dev/null || true)
+    case "$CMDR_LAST" in ''|*[!0-9]*) CMDR_LAST=0 ;; esac
+    [ $((CMDR_NOW - CMDR_LAST)) -lt 60 ] && exit 0
+    printf '%s\n' "$CMDR_NOW" > "$CMDR_LOG_DIR/bootstrap-$1.time"
+    printf '{"code":"bootstrap-%s","at":%s000}\n' "$1" "$CMDR_NOW" > "$CMDR_LOG_FILE"
+  ) 2>/dev/null || true
+}
+CMDR_NODE=''
+if [ -r "$CMDR_RUNTIME_HOME/node-path" ]; then
+  IFS= read -r CMDR_NODE < "$CMDR_RUNTIME_HOME/node-path"
+  [ -x "$CMDR_NODE" ] || CMDR_NODE=''
+fi
+if [ -z "$CMDR_NODE" ]; then
+  CMDR_PATH_NODE=$(command -v node 2>/dev/null || true)
+  for CMDR_CANDIDATE in "$CMDR_PATH_NODE" "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node "$HOME"/Library/Application\ Support/fnm/node-versions/*/installation/bin/node "$HOME"/.nvm/versions/node/*/bin/node "$HOME"/.volta/bin/node "$HOME"/.local/share/mise/installs/node/*/bin/node /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
+    [ -x "$CMDR_CANDIDATE" ] || continue
+    if "$CMDR_CANDIDATE" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=5)?0:1)' >/dev/null 2>&1; then
+      CMDR_NODE=$CMDR_CANDIDATE
+      break
+    fi
+  done
+  if [ -n "$CMDR_NODE" ]; then
+    (umask 077; mkdir -p "$CMDR_RUNTIME_HOME" && printf '%s\n' "$CMDR_NODE" > "$CMDR_RUNTIME_HOME/node-path") 2>/dev/null || true
+  fi
+fi
+if [ -z "$CMDR_NODE" ]; then
+  cmdr_failure node
+  [ "$CMDR_ENTRY" = hook ] && exit 0
+  echo 'cmdr requires Node.js >=22.5 (24 recommended). Install Node and retry.' >&2
+  exit 1
+fi
+if [ ! -f "$CMDR_BIN_DIR/../dist/$CMDR_ENTRY.mjs" ]; then
+  cmdr_failure runtime
+  [ "$CMDR_ENTRY" = hook ] && exit 0
+  if [ "$CMDR_ENTRY" = cli ] && [ "$1" = doctor ] && [ -f "$CMDR_BIN_DIR/cmdr-check.mjs" ]; then
+    exec "$CMDR_NODE" "$CMDR_BIN_DIR/cmdr-check.mjs" "$CMDR_BIN_DIR/.."
+  fi
+  echo 'cmdr runtime is not built. Run npm ci && npm run build in the repository, or install cmdr-mcp from npm, refresh/reinstall the host plugin cache and start a new session. Do not symlink another installation. Inspect this plugin with a working cmdr doctor --plugin-root PATH.' >&2
+  exit 1
+fi
+if [ "$CMDR_ENTRY" = hook ]; then
+  "$CMDR_NODE" --experimental-sqlite --disable-warning=ExperimentalWarning "$CMDR_BIN_DIR/../dist/hook.mjs" "$@" 2>/dev/null || cmdr_failure runtime
+  exit 0
+fi
+exec "$CMDR_NODE" --experimental-sqlite --disable-warning=ExperimentalWarning "$CMDR_BIN_DIR/../dist/$CMDR_ENTRY.mjs" "$@"
