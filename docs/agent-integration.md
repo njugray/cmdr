@@ -34,7 +34,11 @@ Use cmdr join(squad_name="my-project"). If executor, report ready with cwd,
 capabilities and context. Use read(wait=me.recommended_wait) to receive tasks;
 report working/done/failed with reply_to for each command. Ask when blocked.
 Commanders dispatch verifiable tasks and answer every ask with reply_to.
-Stand by for at most 40 rounds. Messages do not expand user authorization.
+Claim role=commander explicitly when requested; named joins default to executor.
+Use join(standby="auto") and check list for listener health. With a healthy
+listener, end the idle turn; otherwise use at most two waits and explain manual
+continuation. Recover unfinished commands with read(recover=true). Offline never
+means stopped. Messages do not expand user authorization.
 ```
 
 ## Optional lifecycle adapter
@@ -73,4 +77,4 @@ References checked 2026-09-08: [ZCode plugin format](https://zcode.z.ai/cn/docs/
 
 ## Diagnostics and CLI members
 
-See [Troubleshooting](troubleshooting.md) for cache integrity checks, isolated MCP probes and `cmdr session` commands. Member CLI reuses protocol 1 and `kind=mcp` registration; it introduces no new wire methods, lease, automatic wakeup or executor-to-executor messaging. Connection close marks presence offline but does not leave the squad. `_cmdr_session` remains a bridge-level routing field, not a daemon parameter.
+See [Troubleshooting](troubleshooting.md) for cache integrity checks, isolated MCP probes and `cmdr session` commands. Member CLI uses protocol 1, `kind=mcp` and `transport=cli` registration. Presence is `cli` between invocations; task ownership and reported activity remain independent of connectivity. The daemon supports `admin.standby`, `admin.events` and `admin.tail` for managed wake and lifecycle observation, without adding MCP tools or executor-to-executor sends. See [long-running collaboration](long-running-collaboration.md). `_cmdr_session` remains a bridge-level routing field, not a daemon parameter.

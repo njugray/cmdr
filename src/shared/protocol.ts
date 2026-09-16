@@ -1,7 +1,7 @@
 // Adapter IDs are open-ended, so any MCP host can participate.
 export type Agent = string;
 export type Role = 'none' | 'commander' | 'executor';
-export type MessageType = 'command' | 'ask' | 'answer' | 'report' | 'info' | 'system';
+export type MessageType = 'command' | 'cancel' | 'ask' | 'answer' | 'report' | 'info' | 'system';
 export const LIMITS = {
   maxWaitSec: 300,
   maxBody: 32768,
@@ -31,8 +31,13 @@ export interface Session {
   transcript_path: string | null;
   role: Role;
   squad_id: string | null;
-  presence: 'online' | 'offline';
-  activity: 'busy' | 'idle';
+  presence: 'online' | 'offline' | 'cli';
+  transport?: 'mcp' | 'cli';
+  member_id?: string;
+  activity_at?: number;
+  last_progress_at?: number;
+  hook_seen_at?: number;
+  activity: 'busy' | 'idle' | 'unknown';
   last_status: { status: string; message: string } | null;
   last_notified_seq: number;
   last_notified_at: number;
@@ -67,4 +72,53 @@ export interface Message {
   attn: boolean;
   created_at: number;
   delivered_at: number | null;
+  work?: Work;
+  task_key?: string;
+  blocked_by?: string;
+}
+
+export type WorkState = 'queued' | 'read' | 'accepted' | 'completed' | 'failed' | 'cancelled';
+export interface Work {
+  state: WorkState;
+  updated_at: number;
+  accepted_at?: number;
+  cancel_requested_at?: number;
+  replacement_id?: string;
+}
+export const terminalWork = (m: Message | undefined) =>
+  !!m?.work && ['completed', 'failed', 'cancelled'].includes(m.work.state);
+export interface LifecycleEvent {
+  event_seq: number;
+  at: number;
+  kind: string;
+  channel: string | null;
+  from_sid?: string;
+  to_sid?: string;
+  message_id?: string;
+  reply_to?: string | null;
+  reason?: string;
+  message?: Message;
+  data?: Record<string, unknown>;
+}
+export interface WakeRequest {
+  id: string;
+  fingerprint: string;
+  message_ids: string[];
+  created_at: number;
+  state: 'requested' | 'accepted' | 'observed' | 'uncertain' | 'failed';
+  submission_id?: string;
+  error?: string;
+}
+export interface Standby {
+  generation?: number;
+  sid: string;
+  enabled: boolean;
+  wake_mode: 'codex' | 'manual';
+  executable?: string;
+  socket?: string;
+  health: 'starting' | 'healthy' | 'stopped' | 'manual' | 'error' | 'uncertain' | 'stalled';
+  host_state: 'idle' | 'busy' | 'unknown';
+  checked_at: number | null;
+  error?: string;
+  request?: WakeRequest;
 }

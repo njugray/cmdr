@@ -26,7 +26,7 @@ npm run build
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.1.2.tgz
+npm install --global ./cmdr-mcp-0.2.0.tgz
 cmdr --help
 ```
 
@@ -68,11 +68,11 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 /cmdr my-project
 ```
 
-第一个会话创建小队并成为指挥官，其余会话加入为执行方。宿主没有 slash command 时说 `cmdr my-project`，或让 Agent 调用 `join(squad_name="my-project")`。查找与创建在同一事务内完成，避免并发重名。已有孤立小队时，需要明确选择接管或加入。
+按名称创建/加入是原子操作，默认作为执行者，首个加入者也不会自动成为指挥官。需要指挥官时明确调用 `join(role="commander", squad_name="my-project", standby="auto")`。这是相对 0.1.x 的行为变化。没有指挥官时也可加入；普通离开、宿主结束和 daemon 重启不会删除频道或改变其 ID。
 
-执行方加入后 `report(ready)` 报到，说明目录、能力和当前上下文。指挥官通过 `list` 看成员，用 `send` 下发可验证任务。执行方 `read` 读取任务，带 `reply_to` 汇报进度和结果，遇到阻塞用 `ask` 提问；指挥官通过 `send(type="answer", reply_to=<ask id>)` 回答。
+执行方加入后 `report(ready)` 报到，说明目录、能力和当前上下文。指挥官通过 `list` 看成员，用 `send` 下发可验证任务。执行方 `read` 读取任务后立即用 `report(working, reply_to=<command id>)` 接单，再带相同 `reply_to` 汇报 done/failed/cancelled，遇到阻塞用 `ask` 提问；指挥官通过 `send(type="answer", reply_to=<ask id>)` 回答。
 
-双方使用 `read(wait=me.recommended_wait)` 待命，技能默认最多等待 40 轮。cmdr 不创建 Agent，也不主动唤醒已经结束回合的宿主；空闲成员可能需要用户去说一句“继续”。
+加入时设置 `standby="auto"`，然后用 `list` 检查监听健康状态。`can_auto_respond=true` 时可结束空闲回合，由 daemon 管理唤醒。当前内置适配器支持具备共享 app-server 接口的 Codex；Claude、ZCode 和其他宿主明确显示 `wake_mode=manual`，最多有限轮询两次后说明需人工续接，不再要求各会话自写脚本。cmdr 不创建新 Agent。完整操作与边界见[长期协作](long-running-collaboration.md)。
 
 ## 工具和运维
 
@@ -81,7 +81,8 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 ```sh
 plugins/cmdr/bin/cmdr status
 plugins/cmdr/bin/cmdr list --all
-plugins/cmdr/bin/cmdr tail --follow
+plugins/cmdr/bin/cmdr tail --follow --json --full --after 0
+plugins/cmdr/bin/cmdr standby status --session <sid>
 plugins/cmdr/bin/cmdr send --squad <id> --to tests "运行测试"
 plugins/cmdr/bin/cmdr read --session <sid> --peek
 plugins/cmdr/bin/cmdr daemon start
@@ -91,9 +92,11 @@ plugins/cmdr/bin/cmdr config --agent zcode
 plugins/cmdr/bin/cmdr purge
 ```
 
-默认数据目录 `~/.cmdr/`，可用 `CMDR_HOME` 覆盖。目录 0700、Unix socket 0600；队列和历史默认保留 7 天。`purge` 只清理过期数据，`purge --all` 会删除全部消息与成员关系。配置示例见英文 README。
+默认数据目录 `~/.cmdr/`，可用 `CMDR_HOME` 覆盖。目录 0700、Unix socket 0600；消息和事件默认保留 7 天，但未终结 command、其改派依赖以及未关闭频道独立保留。`purge` 只清理过期数据，`purge --all` 会删除全部消息与成员关系。配置示例见英文 README。
 
-消息持久化可以跨 daemon 重启恢复；工具返回消息后即视为投递，不提供“Agent 已完成处理”的确认。宿主在收到结果后崩溃时，可从 history 恢复。
+消息投递状态与任务状态分开：queued → read → accepted → completed/failed/cancelled。`working + reply_to` 接单；`read(recover=true)` 找回所有未终结 command，包括已读未接单。`pending=0`、`unread=0`、offline 均不代表停工。`list` 展示归属、接单时长与进度时间；`send(task_key=...)` 防止同一票重复派发，`reassign=<command id>` 先请求原执行者取消，终态确认后才放行替代任务。没有 exactly-once 执行承诺。
+
+`read`/`list` 默认精简输出，完整摘要用 `--full`；使用 `--limit` 或 `read --id` 获取正文，不要用 head 截断消费型读取。`tail --after EVENT_SEQ --for SID --json --full` 提供可补播事件，永不消费工作队列。升级改用 `cmdr daemon restart`：先在数据库副本上验证，再停止旧 daemon；旧客户端不能再通过 upgrade 请求反复关闭服务。
 
 ## 开发与验证
 
@@ -113,7 +116,7 @@ npm run verify:zcode
 
 工具未出现时，用 `cmdr doctor --plugin-root /实际宿主缓存中的插件目录` 检查缓存里的文件校验和与版本。加 `--deep` 会在临时数据目录中完成 MCP 握手、7 个工具检查及 daemon 访问，不操作正常小队。基础检查器独立于 dist，CLI bundle 缺失时仍可诊断；Node 缺失时先安装 Node。修复采用完整 npm 包重新注册市场、刷新/重装缓存并打开新会话，不跨安装目录链接 dist。
 
-`cmdr session join|list|send|report|ask|read|leave` 提供完整成员操作，原有运维命令含义不变。显式传 `--agent`、`--native-id`，或设置 `CMDR_AGENT`、`CMDR_SESSION_ID`；与 MCP/hook 共享会话时必须使用相同原生 ID，共享 MCP 进程不能配置一个固定 ID。CLI 每次调用只在连接期间在线，退出后保留成员关系和队列，不主动唤醒模型。
+`cmdr session join|list|send|report|ask|read|leave` 提供完整成员操作，原有运维命令含义不变。显式传 `--agent`、`--native-id`，或设置 `CMDR_AGENT`、`CMDR_SESSION_ID`；与 MCP/hook 共享会话时必须使用相同原生 ID，共享 MCP 进程不能配置一个固定 ID。CLI 显示 `presence=cli`，退出后保留成员关系和任务状态；连接结束不代表模型停工。监听由 daemon 独立管理。
 
 ```sh
 cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
@@ -121,6 +124,6 @@ cmdr session read --agent zcode --native-id YOUR_SESSION_ID --wait 45
 cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --reply-to COMMAND_ID "已完成"
 ```
 
-首个入队者是指挥官，report/ask 由执行者调用。结果为 JSON，失败使用非零退出码。`--input` 接受该操作完整 JSON 参数；`--timeout`、SIGINT/SIGTERM 可取消等待，等待中的 read 取消不消费后续消息。ask 取消前可能已发送，不能盲目重试。
+指挥官必须显式声明 role=commander，report/ask 由执行者调用。结果为 JSON，失败使用非零退出码。`--input` 接受该操作完整 JSON 参数；`--timeout`、SIGINT/SIGTERM 可取消等待，等待中的 read 取消不消费后续消息。ask 取消前可能已发送，不能盲目重试。
 
 `CMDR_HOME/logs/diagnostics/` 保存有界、限频的元数据快照。hook 仍失败放行，不写消息正文；unknown 表示尚未观察到，配置存在不代表真实触发。doctor 显示 provisional 会话及等待推荐来源；升级诊断不进入任务消息队列。详细案例见[排障说明](troubleshooting.md)。

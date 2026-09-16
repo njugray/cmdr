@@ -1,6 +1,6 @@
 # npm 发布
 
-本次发布版本为 `cmdr-mcp@0.1.2`。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
+本次发布版本为 `cmdr-mcp@0.2.0`。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
 
 ## 准备与验证
 
@@ -10,12 +10,12 @@
 npm ci
 npm run check
 npm pack
-npm publish ./cmdr-mcp-0.1.2.tgz --dry-run --access public --registry https://registry.npmjs.org/
+npm publish ./cmdr-mcp-0.2.0.tgz --dry-run --access public --registry https://registry.npmjs.org/
 ```
 
 涉及 ZCode 的发布另运行 `npm run verify:zcode`：从实际 tarball 安装到隔离缓存，核对完整性并移走安装源后验证 7 个工具；需要本机 ZCode runtime。
 
-`npm run check` 包括格式、类型、构建、测试以及临时目录中的 npm 包离线安装验证：检查发布资源、安装后 marketplace 路径、CLI 和 7 个 MCP 工具。`npm pack` 通过 `prepack` 生成 4 个运行入口及第三方许可证声明，输出 `cmdr-mcp-0.1.2.tgz`。源码、测试和开发依赖不进入发布包。
+`npm run check` 包括格式、类型、构建、测试以及临时目录中的 npm 包离线安装验证：检查发布资源、安装后 marketplace 路径、CLI 和 7 个 MCP 工具。`npm pack` 通过 `prepack` 生成 4 个运行入口及第三方许可证声明，输出 `cmdr-mcp-0.2.0.tgz`。源码、测试和开发依赖不进入发布包。
 
 检查 `git diff`，确认版本与预期一致，构建未意外修改宿主 manifests。发布前保留经过验证的源码提交；不要手改或提交 `plugins/cmdr/dist/`、`THIRD_PARTY_NOTICES.txt` 和 `.tgz`。
 
@@ -36,16 +36,16 @@ npm view cmdr-mcp name version --registry https://registry.npmjs.org/
 确认发布时，上传已检查的 tarball，并按 npm 提示完成账号验证：
 
 ```sh
-npm publish ./cmdr-mcp-0.1.2.tgz --access public --registry https://registry.npmjs.org/
+npm publish ./cmdr-mcp-0.2.0.tgz --access public --registry https://registry.npmjs.org/
 ```
 
-此命令会公开发布 `0.1.2` 并使用默认的 `latest` 标签。相同包名和版本不能重复发布；后续修改需要提升版本并重新构建验证。发布使用 tarball，以保持上传内容与已检查产物一致。
+此命令会公开发布 `0.2.0` 并使用默认的 `latest` 标签。相同包名和版本不能重复发布；后续修改需要提升版本并重新构建验证。发布使用 tarball，以保持上传内容与已检查产物一致。
 
 ## 发布后核对
 
 ```sh
-npm view cmdr-mcp@0.1.2 name version dist.integrity --registry https://registry.npmjs.org/
-npm install --global cmdr-mcp@0.1.2 --registry https://registry.npmjs.org/
+npm view cmdr-mcp@0.2.0 name version dist.integrity --registry https://registry.npmjs.org/
+npm install --global cmdr-mcp@0.2.0 --registry https://registry.npmjs.org/
 cmdr --help
 ```
 

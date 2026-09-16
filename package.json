@@ -1,6 +1,6 @@
 {
   "name": "cmdr-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Local multi-agent squads for Claude Code, Codex, ZCode and any MCP host",
   "engines": {

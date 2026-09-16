@@ -62,7 +62,7 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
     'report',
     'send',
   ]);
-  const q = await tool(c, 'join', { squad_name: 'Processes' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Processes' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id, name: 'tests' });
   await tool(e, 'report', { status: 'ready', message: 'ready' });
   await tool(c, 'read');
@@ -86,7 +86,11 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
 it('isolates two ZCode sessions sharing a single MCP process', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-multiplex-'));
   const shared = await host('zcode');
-  const a = await tool(shared, 'join', { squad_name: 'Shared', _cmdr_session: 'a' });
+  const a = await tool(shared, 'join', {
+    role: 'commander',
+    squad_name: 'Shared',
+    _cmdr_session: 'a',
+  });
   const b = await tool(shared, 'join', { squad_name: 'Shared', _cmdr_session: 'b' });
   expect(a.me.sid).toBe('zcode:a');
   expect(b.me.sid).toBe('zcode:b');
@@ -128,7 +132,7 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
   expect(await invoke('Stop', { session_id: 's' })).toBe('');
   expect(existsSync(paths(home).socket)).toBe(false);
   const c = await host('zcode', 's');
-  await tool(c, 'join', { squad_name: 'x' });
+  await tool(c, 'join', { role: 'commander', squad_name: 'x' });
   // Hooks intentionally fail open after a short deadline; a loaded runner may time out.
   await expect
     .poll(
@@ -165,7 +169,7 @@ it('propagates MCP cancellation without consuming a later message', async () => 
   home = mkdtempSync(join(tmpdir(), 'cmdr-cancel-'));
   const c = await host('generic', 'c'),
     e = await host('zcode', 'e');
-  const q = await tool(c, 'join', { squad_name: 'Cancel' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Cancel' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id });
   const controller = new AbortController();
   const waiting = e.callTool({ name: 'read', arguments: { wait: 5 } }, undefined, {
@@ -185,7 +189,7 @@ it('recovers a daemon killed without shutdown and preserves queued messages', as
   home = mkdtempSync(join(tmpdir(), 'cmdr-crash-'));
   const c = await host('generic', 'c'),
     e = await host('generic', 'e');
-  const q = await tool(c, 'join', { squad_name: 'Crash' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Crash' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id });
   await tool(c, 'send', { to: 'all', message: 'durable' });
   const pid = JSON.parse(readFileSync(paths(home).info, 'utf8')).pid;
@@ -207,7 +211,7 @@ it('recovers a daemon killed without shutdown and preserves queued messages', as
   expect(JSON.parse(readFileSync(paths(home).info, 'utf8')).pid).not.toBe(pid);
 }, 12000);
 
-it('upgrades an older daemon while retaining memberships and queued work', async () => {
+it('requires a validated explicit restart to upgrade without disrupting queued work', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-upgrade-'));
   const oldPath = join(home, 'old-daemon.mjs');
   await build({
@@ -236,10 +240,13 @@ it('upgrades an older daemon while retaining memberships and queued work', async
     }
     const c = await register('c'),
       e = await register('e');
-    const q = await c.request('session.join', { squad_name: 'Upgrade' });
+    const q = await c.request('session.join', { role: 'commander', squad_name: 'Upgrade' });
     await e.request('session.join', { role: 'executor', squad: q.squad.id });
     await c.request('msg.send', { to: 'all', message: 'before upgrade' });
     const upgraded = await host('generic', 'e');
+    await expect(tool(upgraded, 'read')).rejects.toThrow('UPGRADE_REQUIRED');
+    expect(JSON.parse(readFileSync(paths(home).info, 'utf8')).pid).toBe(old.pid);
+    await run(cli, ['daemon', 'restart'], { env: env() });
     expect((await tool(upgraded, 'read')).messages[0].body).toBe('before upgrade');
     const info = JSON.parse(readFileSync(paths(home).info, 'utf8'));
     expect(info.version).toBe(JSON.parse(readFileSync('package.json', 'utf8')).version);

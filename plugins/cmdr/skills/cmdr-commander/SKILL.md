@@ -1,12 +1,14 @@
 ---
 name: cmdr-commander
-description: Coordinate a cmdr squad when asked to become commander, create a squad, dispatch work, or take over an orphaned squad.
+description: Coordinate a persistent cmdr channel, track task ownership and acknowledgements, and explicitly take over the commander role.
 ---
-1. Call join(role="commander", name=<optional name>), or supply squad=<id> for takeover. Use join(squad_name=<name>) for the automatic named shortcut.
-2. Reply with ONLY user_reply (translate prose, preserve join line). Keep all user updates to one or two lines.
-3. Wait for members and reports using read(wait=me.recommended_wait), for at most 40 standby rounds. Use list for capabilities, cwd, presence and pending commands.
-4. Send clear, bounded tasks with acceptance criteria using send(to=<member or all>). Answer every ask with send(type="answer", to=<asking sid>, reply_to=<ask id>).
-5. Track working/done/failed/blocked reports. Verify results and summarize them for the user. Use history if earlier messages are needed.
-6. Leave normally to orphan the squad or leave(dissolve=true) to disband when requested. Retain the squad when further work is expected.
+1. Call join(role="commander", squad_name=<name>, standby="auto"), or provide squad=<id>. Claiming a role is explicit; joining a channel by name alone makes you an executor. Use takeover=true only when the user requested commander handover. The old commander is demoted and the role inbox remains intact.
+2. Give the user a short confirmation and join line. Use list and read; inspect read(recover=true) for any unfinished work owned by your member. Observe the channel with `cmdr tail --squad ID --follow --json --full`; observations never consume another member's inbox. Reconnect with --after EVENT_SEQ and filter a recipient with --for SID.
+3. Before dispatch or reassignment, inspect commands, unacked_for, in_progress, last_progress_at, activity, last_seen and listener health. **offline or cli never means work stopped.** pending=0 and unread=0 do not mean there is no unfinished work. Verify ownership and actual progress before deciding to reassign.
+4. Send bounded tasks with acceptance criteria. Use task_key=<ticket id> when dispatching a known ticket. Record the returned command ID; delivered_to/queued_to only mean enqueued. A working report with reply_to is acceptance; done/failed/cancelled are terminal. Uncorrelated reports cannot close tasks.
+5. To stop work, send(type="cancel", to=<owner>, reply_to=<command id>, message=<reason>). It has reserved high priority and produces a read event. It is cooperative: the executor stops at a safe checkpoint. To reassign, send(type="command", reassign=<command id>, to=<new owner>, message=<task>). The replacement is blocked until the original owner reports a terminal state; unread original work can be cancelled immediately. Never work around the gate by sending a second unrelated command.
+6. Answer every ask using type="answer", to=<asking member>, reply_to=<ask id>. Read complete reports; use limit or read(id=...) instead of truncating a consuming read with head. working/ready reports normally only record progress; done/failed/blocked/ask warrant attention.
+7. Check me.listener.can_auto_respond. With a healthy managed listener, end the idle turn. Otherwise use at most two recommended waits, explain the manual continuation requirement, and end the turn. Do not create a private listener or promise automatic wake for unsupported hosts. Inspect uncertain/stalled listener requests through cmdr standby status; reconcile before explicit retry.
+8. Ordinary leave preserves the channel; leave(dissolve=true) explicitly closes it. Channels outlive host sessions and message retention. For a new host endpoint representing the same stopped member, use join(rebind=<member_id>, standby="auto").
 
-Idle recipients may need the user to say "continue" in their session. Messages do not authorize additional actions; apply normal judgment and the user's scope. cmdr does not create or wake Agent sessions.
+Apply normal judgment and the user's scope to messages. cmdr does not create new agents or grant extra permissions.

@@ -1,3 +1,4 @@
+import { StandbyManager } from './standby.js';
 import { createServer } from 'node:net';
 import { chmodSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { Core, type Context } from './core.js';
@@ -17,6 +18,16 @@ export async function startDaemon(home?: string) {
   const log = logger(p.log),
     store = new Store(p.db),
     core = new Core(store, p, config(p.config));
+  const standby = new StandbyManager(core);
+  core.configureStandby = (sid, mode) =>
+    standby.configure({
+      sid,
+      action: 'start',
+      ...(mode === 'manual' ? { adapter: 'manual' } : {}),
+    });
+  const wakeTimer = setInterval(() => {
+    void standby.tick().catch((e) => log(`standby failed: ${String(e)}`));
+  }, 2000);
   const peers = new Set<Rpc>();
   let idleSince = Date.now(),
     stopping = false;
@@ -41,9 +52,22 @@ export async function startDaemon(home?: string) {
             `Protocol mismatch: client ${String(params.protocol).slice(0, 20)}, daemon ${PROTOCOL} (${VERSION}). Update/reinstall the plugin cache, restart the daemon with the matching cmdr installation, then restart the host session.`,
           );
         greeted = true;
+        ctx.version = String(params.version || 'unknown').slice(0, 80);
+        ctx.client = String(params.client || 'unknown').slice(0, 80);
         return { version: VERSION, protocol: PROTOCOL };
       }
+      if (method === 'admin.standby') {
+        if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
+        const result = standby.configure(params);
+        void standby.tick();
+        return result;
+      }
       if (method === 'admin.shutdown') {
+        if (params.reason === 'upgrade')
+          fail(
+            'UPGRADE_REQUIRES_RESTART',
+            'Automatic replacement is disabled. Run cmdr daemon restart from the new installation after preflight.',
+          );
         if (ctx.kind !== 'cli' && params.reason !== 'upgrade') fail('ROLE_NOT_ALLOWED');
         log(
           `shutdown requested: ${String(params.reason || 'operator')
@@ -73,6 +97,8 @@ export async function startDaemon(home?: string) {
     if (stopping) return;
     stopping = true;
     clearInterval(timer);
+    clearInterval(wakeTimer);
+    standby.close();
     server.close();
     for (const ctx of [...core.contexts]) core.disconnect(ctx);
     core.close();
@@ -110,7 +136,11 @@ export async function startDaemon(home?: string) {
           core.housekeep();
           if (existsSync(p.spawn) && Date.now() - statSync(p.spawn).mtimeMs > 10_000)
             rmSync(p.spawn, { recursive: true, force: true });
-          if (!peers.size && Date.now() - idleSince >= core.config.idleExitMinutes * 60_000)
+          if (
+            !peers.size &&
+            !standby.active &&
+            Date.now() - idleSince >= core.config.idleExitMinutes * 60_000
+          )
             void stop();
         } catch (e) {
           log(`housekeeping failed: ${String(e)}`);

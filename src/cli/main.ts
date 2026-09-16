@@ -1,3 +1,4 @@
+import { tail } from './tail.js';
 import { runSession } from './session.js';
 import { inspectInstallation, probeMcp, diagnosticStatus } from './doctor.js';
 import { waitRecommendation } from '../shared/env.js';
@@ -24,6 +25,19 @@ if (process.argv[2] === 'session') {
       to: { type: 'string' },
       type: { type: 'string' },
       'reply-to': { type: 'string' },
+      priority: { type: 'string' },
+      'task-key': { type: 'string' },
+      reassign: { type: 'string' },
+      after: { type: 'string' },
+      for: { type: 'string' },
+      adapter: { type: 'string' },
+      executable: { type: 'string' },
+      socket: { type: 'string' },
+      resolve: { type: 'string' },
+      recover: { type: 'boolean' },
+      history: { type: 'boolean' },
+      id: { type: 'string' },
+      limit: { type: 'string' },
       session: { type: 'string' },
       peek: { type: 'boolean' },
       follow: { type: 'boolean' },
@@ -127,7 +141,7 @@ if (process.argv[2] === 'session') {
   try {
     if (v.help)
       process.stdout.write(
-        'cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] | send --squad ID [--to MEMBER] [--type command|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
+        'cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ] [--for SID] | standby start|status|stop|resume --session SID [--adapter codex|manual] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
       );
     else if (cmd === 'config') {
       const agent = v.agent || 'generic';
@@ -154,6 +168,7 @@ if (process.argv[2] === 'session') {
       const result = await call('session.list', {
         scope: v.all ? 'all' : undefined,
         squad: v.squad,
+        full: !!v.full,
       });
       if (v.json) print(result);
       else {
@@ -165,11 +180,20 @@ if (process.argv[2] === 'session') {
             title: s.title,
             role: s.role,
             squad: s.squad,
-            presence: s.presence,
+            work: s.commands
+              .map((m: any) => `${m.id}:${m.state}${m.cancel_requested_at ? ':cancelling' : ''}`)
+              .join(', '),
+            unacked: s.unacked,
+            in_progress: s.in_progress,
             activity: s.activity,
+            progress_seconds_ago: s.last_progress_at
+              ? Math.floor((Date.now() - s.last_progress_at) / 1000)
+              : 'unknown',
+            connection: s.presence,
             pending: s.pending,
+            wake: `${s.listener.wake_mode}/${s.listener.health}`,
             identity: s.native_id ? 'confirmed' : 'provisional',
-            age_ms: Date.now() - s.created_at,
+            seen_seconds_ago: Math.floor((Date.now() - s.last_seen) / 1000),
             cwd: s.cwd,
             terminal: s.terminal?.program,
           })),
@@ -192,6 +216,9 @@ if (process.argv[2] === 'session') {
             to: v.to || 'all',
             type: v.type || 'command',
             reply_to: v['reply-to'],
+            priority: v.priority,
+            reassign: v.reassign,
+            task_key: v['task-key'],
             message: args.slice(1).join(' '),
           },
           true,
@@ -199,26 +226,64 @@ if (process.argv[2] === 'session') {
       );
     else if (cmd === 'read') {
       if (!v.session) throw new Error('--session SID is required');
-      print(await call('admin.read', { sid: v.session, options: { peek: !!v.peek } }));
+      print(
+        await call('admin.read', {
+          sid: v.session,
+          options: {
+            peek: !!v.peek,
+            history: !!v.history,
+            full: !!v.full,
+            recover: !!v.recover,
+            id: v.id,
+            limit: v.limit ? Number(v.limit) : undefined,
+          },
+        }),
+      );
     } else if (cmd === 'purge') print(await call('admin.purge', { all: !!v.all }));
-    else if (cmd === 'tail') {
-      const rpc = await daemonConnection();
-      await rpc.request('session.register', { kind: 'cli' });
-      if (v.follow) {
-        rpc.on('notification', (method, value) => {
-          if (method === 'msg.event') print(value);
-        });
-        await rpc.request('admin.tail', { squad: v.squad, full: !!v.full });
-      }
-      print(await rpc.request('admin.recent', { squad: v.squad, full: !!v.full }));
-      if (!v.follow) rpc.close();
-      else process.on('SIGINT', () => rpc.close());
+    else if (cmd === 'standby') {
+      if (!v.session) throw new Error('--session SID is required');
+      print(
+        await call(
+          'admin.standby',
+          {
+            sid: v.session,
+            action: args[1] || 'status',
+            adapter: v.adapter,
+            executable: v.executable,
+            socket: v.socket,
+            resolve: v.resolve,
+          },
+          true,
+        ),
+      );
+    } else if (cmd === 'tail') {
+      const after = v.after === undefined ? undefined : Number(v.after);
+      if (after !== undefined && (!Number.isSafeInteger(after) || after < 0))
+        throw new Error('--after requires a nonnegative event_seq');
+      await tail({
+        squad: v.squad,
+        for: v.for,
+        after,
+        full: !!v.full,
+        json: !!v.json,
+        follow: !!v.follow,
+      });
     } else if (cmd === 'daemon') {
       const action = args[1] || 'status';
       if (action === 'logs')
         process.stdout.write(existsSync(p.log) ? readFileSync(p.log, 'utf8') : 'No daemon logs.\n');
       else if (action === 'status') print(await call('admin.status'));
       else if (action === 'stop' || action === 'restart') {
+        if (action === 'restart')
+          execFileSync(
+            process.execPath,
+            [
+              '--experimental-sqlite',
+              join(dirname(fileURLToPath(import.meta.url)), 'daemon.mjs'),
+              '--preflight',
+            ],
+            { timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] },
+          );
         try {
           print(await call('admin.shutdown', { reason: action }));
         } catch (e) {

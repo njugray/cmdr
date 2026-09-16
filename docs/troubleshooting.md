@@ -29,7 +29,7 @@ The states are distinct:
 | `hook-unavailable` | A hook could not reach a running daemon; hooks intentionally do not start it. |
 | `identity-conflict` | A hook session ID disagreed with explicit `CMDR_SESSION_ID`; correct the configuration. |
 | Protocol mismatch | Follow the message's client/daemon protocol information; update the cache, restart the matching daemon and reconnect the host. |
-| Member offline | No member connection is held; queued messages and membership are retained. This is normal between CLI calls. |
+| Member offline | No member connection is held; queued messages and membership are retained. This says nothing about task execution; CLI-only members display cli. |
 
 `CMDR_HOME/logs/diagnostics/` contains bounded snapshots with timestamps and metadata only. Hook observations describe the most recently recorded host for each event, not every session; activity from a different host is not evidence that your current host's hooks work. Snapshots are rate limited (10 seconds; bootstrap failures 60 seconds), use restricted permissions, and never include message bodies, hook input, credentials or environment dumps. Unknown is not equivalent to failure. Logs cannot block hooks if unwritable. Upgrade and reconnection snapshots are best-effort diagnostics, not actionable queue messages or delivery guarantees.
 
@@ -61,7 +61,7 @@ cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --re
 cmdr session leave --agent zcode --native-id YOUR_SESSION_ID
 ```
 
-The first joiner is commander; report/ask require an executor. The commander uses:
+Named joins default to executor; report/ask require that role. Explicitly claim command with `join --role commander --squad-name my-project`. The commander uses:
 
 ```sh
 cmdr session list --agent zcode --native-id COMMANDER_ID
@@ -73,4 +73,16 @@ cmdr session send --agent zcode --native-id COMMANDER_ID --to MEMBER_SID --type 
 
 Every command writes a JSON result, or a JSON error on stderr with a nonzero exit code. `--timeout` bounds the operation (default wait+10 seconds, maximum 3600 seconds); SIGINT/SIGTERM cancel it. A cancelled waiting read does not consume later arrivals. A cancelled ask may already have been sent: requests are never automatically replayed, and a lost response is not proof that the mutation failed. Inspect history before manually retrying.
 
-Short-lived commands are online only while connected. They do not leave squads on exit, keep a background process alive, wake a model, or claim task success when reading a message. Existing operator `cmdr send/read/list` commands retain their previous meaning. This CLI fallback still requires an intact runtime; it cannot compensate for all bundles being missing.
+Short-lived commands display cli and retain task ownership after exit. They do not leave channels or imply success on read. Enable daemon-managed standby separately or through join --standby auto; unsupported hosts remain manual. Existing operator `cmdr send/read/list` commands retain their previous meaning. This CLI fallback still requires an intact runtime; it cannot compensate for all bundles being missing.
+
+
+## Long-running collaboration diagnostics
+
+- Use `list` to inspect `commands`, `unacked_for` (seconds since dispatch until acceptance), `last_progress_at`, `hook_seen_at` and listener health. Do not reassign based on presence alone.
+- Use `read --recover` for unfinished work and `read --id MESSAGE_ID` for a non-consuming full lookup. `--full` restores the expanded squad summary. Consuming read output should not be piped to head.
+- `standby status --session SID` exposes the current wake ID and requested/accepted/observed/uncertain state. `stalled` means host acceptance did not produce progress. Check the host before `standby resume --session SID --resolve retry` (explicitly permits a new request) or `--resolve accepted` (retain the existing request). A missing lookup result is not proof that an earlier request failed.
+- `tail --follow --after EVENT_SEQ --for SID --json --full` replays and follows lifecycle events without reading work. `retention.gap` means the cursor predates retained events. Start a new cursor with `--after 0` only after checking CMDR_HOME if CURSOR_AHEAD is reported.
+- `UPGRADE_REQUIRED` leaves the old daemon running. Run `cmdr daemon restart` from the new intact installation; it first validates a consistent database copy. If preflight fails, the old daemon is not stopped. `doctor` includes connected client versions; update old caches before reconnecting them.
+- Missing runtime or Node now produces one stderr line from the fail-open hook wrapper as well as the bounded diagnostic snapshot.
+
+See [long-running collaboration](long-running-collaboration.md) for adapter requirements and recovery examples.

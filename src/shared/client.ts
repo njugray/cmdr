@@ -47,15 +47,16 @@ export async function daemonConnection(
             { from: hello.version, to: VERSION, protocol: hello.protocol },
             options.home,
           );
-          await rpc.request('admin.shutdown', { reason: 'upgrade', version: VERSION }, timeout);
-          rpc.close();
-          await sleep(100);
-          continue;
+          throw new CmdrError(
+            'UPGRADE_REQUIRED',
+            `Daemon ${hello.version} is older than client ${VERSION}. Run cmdr daemon restart from this installation; automatic replacement is disabled to protect live sessions.`,
+          );
         }
         return rpc;
       } catch (e: any) {
         rpc?.close();
-        if (e.code === 'PROTOCOL_MISMATCH' || !options.start) throw e;
+        if (e.code === 'PROTOCOL_MISMATCH' || e.code === 'UPGRADE_REQUIRED' || !options.start)
+          throw e;
       }
       if (!owner) {
         try {

@@ -57,13 +57,13 @@ function closeClients() {
 }
 const server = new McpServer({ name: 'cmdr', version: VERSION });
 const descriptions: Record<Tool, string> = {
-  join: 'Create/join a squad. For /cmdr <name>, pass only squad_name for atomic find-or-create. Otherwise specify role and optional squad ID/name. Executors report ready after joining. Reply to the user with user_reply, then read(wait=me.recommended_wait).',
-  list: 'Show squad members, presence, activity and pending commands. scope=all lists squads and sessions.',
-  send: 'Commander: dispatch clear tasks with acceptance criteria, or answer an ask using type=answer and reply_to. to accepts all, exact sid, unique sid prefix or member name.',
+  join: 'Create/join a squad. For /cmdr <name>, pass squad_name for atomic find-or-create; role defaults to executor. Explicitly claim role=commander, use takeover=true for handover or rebind=member_id for a new endpoint. Otherwise specify role and optional squad ID/name. Use standby=auto for daemon-managed wake when supported; inspect listener health before ending the turn. Executors report ready after joining. Reply with user_reply and follow listener health; bounded read(wait=me.recommended_wait) is the manual fallback.',
+  list: 'Show task ownership, unacked_for, execution activity, connection presence and listener health. Offline never authorizes reassignment. Use full=true for expanded details. scope=all lists squads and sessions.',
+  send: 'Commander: dispatch clear tasks with acceptance criteria, or answer an ask using type=answer and reply_to. Use task_key to prevent duplicate tickets and reassign=<command id> for a gated handover. type=cancel with reply_to requests a safe stop. to accepts all, member_id, sid, unique sid prefix or member name.',
   report:
-    'Executor: report ready (cwd/capabilities), working, blocked, done or failed; include reply_to for the command.',
+    'Executor: report ready (cwd/capabilities), working, blocked, done, failed or cancelled; include reply_to for the command.',
   ask: 'Executor: ask the commander for guidance. Optional wait waits for the matching answer; use me.recommended_wait as the upper bound.',
-  read: 'Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Do at most 40 standby rounds.',
+  read: 'Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Use recover=true for all unfinished commands (non-consuming), id for a non-consuming message lookup, full for squad details. With a healthy managed listener, end the turn. Otherwise do at most two waits and explain manual continuation.',
   leave:
     'Leave the squad. Commander departure orphans it; dissolve=true disbands it. Messages already queued remain readable.',
 };
