@@ -39,11 +39,12 @@ if (input) {
   packageRoot = join(sourceRoot, 'package');
 }
 const workspace = { workspacePath: dir, workspaceKey: 'cmdr-smoke' };
+const sessionDbPath = join(dir, 'zcode', 'cli', 'db', 'db.sqlite');
 mkdirSync(join(dir, '.zcode'));
 writeFileSync(
   join(dir, '.zcode/config.json'),
   JSON.stringify({
-    storage: { dir: join(dir, 'zcode') },
+    storage: { dir: join(dir, 'zcode'), sessionDbPath },
     mcp: { servers: {} },
     plugins: { dirs: [], enabledPlugins: {} },
   }),
@@ -55,6 +56,8 @@ const child = spawn(
     env: {
       ...process.env,
       ZCODE_STORAGE_DIR: join(dir, 'zcode'),
+      // storage.dir does not control the session database opened at startup.
+      ZCODE_SESSION_DB_PATH: sessionDbPath,
       CMDR_HOME: join(dir, 'cmdr'),
       OTEL_SDK_DISABLED: 'true',
     },
@@ -100,6 +103,7 @@ try {
     pluginName: 'cmdr',
   });
   assert.equal(validation.ok, true, JSON.stringify(validation.diagnostics));
+  assert.ok(existsSync(sessionDbPath), 'Runtime must open its database in the temporary directory');
   console.log('ZCode native plugin validation passed.');
   await request('plugins/marketplace/add', { workspace, source: packageRoot });
   const install = await request('plugins/install', {

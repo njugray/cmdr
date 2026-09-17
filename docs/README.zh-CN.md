@@ -72,7 +72,7 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 
 执行方加入后 `report(ready)` 报到，说明目录、能力和当前上下文。指挥官通过 `list` 看成员，用 `send` 下发可验证任务。执行方 `read` 读取任务后立即用 `report(working, reply_to=<command id>)` 接单，再带相同 `reply_to` 汇报 done/failed/cancelled，遇到阻塞用 `ask` 提问；指挥官通过 `send(type="answer", reply_to=<ask id>)` 回答。
 
-加入时设置 `standby="auto"`，然后用 `list` 检查监听健康状态。`can_auto_respond=true` 时可结束空闲回合，由 daemon 管理唤醒。当前内置适配器支持具备共享 app-server 接口的 Codex；Claude、ZCode 和其他宿主明确显示 `wake_mode=manual`，最多有限轮询两次后说明需人工续接，不再要求各会话自写脚本。cmdr 不创建新 Agent。完整操作与边界见[长期协作](long-running-collaboration.md)。
+加入时设置 `standby="auto"`，再按 `listener.arm` 和 `list` 的健康状态操作。Codex 由 daemon 自动探测 proxy，并在不可用时尝试 `codex queue`；Claude 使用原生 Monitor，ZCode 使用 `run_in_background=true` 的后台 Bash，两者都运行内置 `cmdr standby watch`。宿主 watcher 真正挂载后才显示 `can_auto_respond=true`，此时可结束空闲回合；任务完成、失败、到期或宿主重启后重新挂载。只有不支持原生通知或挂载失败时，才退回两次有限轮询并说明需人工续接。完整操作与边界见[长期协作](long-running-collaboration.md)。
 
 ## 工具和运维
 

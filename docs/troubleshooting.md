@@ -86,3 +86,9 @@ Short-lived commands display cli and retain task ownership after exit. They do n
 - Missing runtime or Node now produces one stderr line from the fail-open hook wrapper as well as the bounded diagnostic snapshot.
 
 See [long-running collaboration](long-running-collaboration.md) for adapter requirements and recovery examples.
+
+## Automatic wake diagnostics
+
+- Codex: `standby status --session SID` shows the selected `transport`. Auto mode tries proxy then queue. Missing socket alone no longer establishes that wake is unavailable. Queue compatibility needs Node >=22.12, an available CLI with queue --thread/--message, and readable state_5/rollout lifecycle records in the daemon's CODEX_HOME. Inspect the concrete proxy/queue error before choosing an explicit executable or transport.
+- Claude/ZCode: `wake_mode=claude|zcode` with starting means the native watcher still needs arming. Use the absolute `listener.arm.command` with Monitor or background Bash as specified; shell detachment cannot supply a native completion notification. WATCHER_ACTIVE means inspect/reuse the existing native task. Re-arm after daemon/App restart or native task expiry.
+- `uncertain` is not automatic retry permission. Reconcile host history and cmdr work, then choose standby resume --resolve accepted or retry. CLI acceptance never substitutes for a working report from the member.

@@ -10,7 +10,7 @@ Install a built checkout or the unpacked/installed npm package root as a marketp
 
 `bin/cmdr config --agent zcode` prints native ZCode configuration; `bin/cmdr config --agent my-agent` prints generic MCP configuration. `bin/cmdr doctor` checks installation health. `bin/cmdr daemon restart` reloads same-version code changes. State lives in `~/.cmdr/` (override `CMDR_HOME`), shared by all sessions.
 
-The daemon can wake existing Codex sessions through the shared public app-server transport; other hosts explicitly remain manual. It never creates agents or provides remote transport. Read marks delivery; report(working/done/failed/cancelled, reply_to) tracks work separately. cmdr standby manages listeners, and tail --after/--for supports non-consuming event replay. See [long-running collaboration](https://github.com/njugray/cmdr/blob/main/docs/long-running-collaboration.md).
+Codex wakes through proxy or queue; Claude Monitor and ZCode background Bash run the built-in standby watcher. Join/list supplies native arming instructions, and a live lease controls health. Unknown hosts remain manual; no remote transport is provided. Read marks delivery; report(working/done/failed/cancelled, reply_to) tracks work separately. cmdr standby manages listeners, and tail --after/--for supports non-consuming event replay. See [long-running collaboration](https://github.com/njugray/cmdr/blob/main/docs/long-running-collaboration.md).
 
 [Installation and usage](https://github.com/njugray/cmdr#readme) · [Host integration](https://github.com/njugray/cmdr/blob/main/docs/agent-integration.md) · [Verification scope](https://github.com/njugray/cmdr/blob/main/docs/implementation.md)
 

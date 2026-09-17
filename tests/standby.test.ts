@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { fixture } from './helpers.js';
 import { StandbyManager } from '../src/daemon/standby.js';
 import type { HostAdapter } from '../src/daemon/adapters/codex.js';
-import type { WakeRequest } from '../src/shared/protocol.js';
+import { WakeDeferred, type WakeRequest } from '../src/shared/protocol.js';
 let f: ReturnType<typeof fixture>, manager: StandbyManager;
 class Host implements HostAdapter {
   status: 'busy' | 'idle' | 'unknown' = 'idle';
@@ -159,6 +159,7 @@ it('does not wake a commander for working/ready, but does for actionable reports
   const host = new Host();
   manager = new StandbyManager(f.core, () => host);
   manager.configure({ sid: c.sid, action: 'start' });
+  await f.core.handle(c, 'msg.read'); // member_joined itself warrants a wake
   for (const status of ['ready', 'working'])
     await f.core.handle(e, 'msg.report', { status, message: status });
   await manager.tick();
@@ -169,7 +170,12 @@ it('does not wake a commander for working/ready, but does for actionable reports
 });
 it('exposes unsupported hosts as manual and stops/resumes a persisted listener', async () => {
   const { c, e, host } = await setup();
-  expect(manager.configure({ sid: c.sid, action: 'start' }).wake_mode).toBe('manual');
+  const generic = await f.session('custom-host', 'custom');
+  await f.core.handle(generic, 'session.join', {
+    role: 'executor',
+    squad: f.store.session(c.sid!)!.squad_id,
+  });
+  expect(manager.configure({ sid: generic.sid, action: 'start' }).wake_mode).toBe('manual');
   manager.configure({ sid: e.sid, action: 'stop' });
   await f.core.handle(c, 'msg.send', { to: e.sid, message: 'later' });
   await manager.tick();
@@ -222,4 +228,84 @@ it('stops all channel listeners on explicit closure without dropping their work'
   expect(f.store.standby(e.sid!)?.enabled).toBe(false);
   expect(manager.active).toBe(false);
   expect(f.store.commands(e.sid!)).toHaveLength(1);
+});
+
+it.each(['claude', 'zcode'])(
+  'arms %s only with a live host lease, rejects duplicates and expires',
+  async (agent) => {
+    f = fixture();
+    const c = await f.session(agent, 'host');
+    await f.core.handle(c, 'session.join', { squad_name: 'host', role: 'commander' });
+    manager = new StandbyManager(f.core, () => {
+      throw new Error('host watcher must not invoke adapter');
+    });
+    const result = manager.configure({ sid: c.sid, action: 'start' });
+    expect(result).toMatchObject({ wake_mode: agent, health: 'starting' });
+    expect(f.core.standbyView(c.sid!).can_auto_respond).toBe(false);
+    expect(f.core.standbyView(c.sid!).arm?.command).toContain('standby watch');
+    manager.watch(c.sid!, 'first', 'attach');
+    expect(f.core.standbyView(c.sid!).can_auto_respond).toBe(true);
+    expect(() => manager.watch(c.sid!, 'second', 'attach')).toThrow('already owns');
+    manager.configure({ sid: c.sid, action: 'start' });
+    expect(f.store.standby(c.sid!)?.lease?.token).toBe('first');
+    const e = await f.session('custom-host', 'executor');
+    await f.core.handle(e, 'session.join', {
+      role: 'executor',
+      squad: f.store.session(c.sid!)!.squad_id,
+    });
+    await f.core.handle(c, 'msg.read');
+    await f.core.handle(e, 'msg.report', { status: 'ready', message: 'ready' });
+    expect(manager.watch(c.sid!, 'first', 'pulse').messages).toHaveLength(0);
+    await f.core.handle(e, 'msg.report', { status: 'done', message: 'secret body' });
+    const snapshot = manager.watch(c.sid!, 'first', 'pulse');
+    expect(snapshot.messages).toHaveLength(1);
+    expect(JSON.stringify(snapshot)).not.toContain('secret body');
+    expect(f.core.inbox(f.store.session(c.sid!)!)).toHaveLength(2);
+    const record = f.store.standby(c.sid!)!;
+    record.lease!.expires_at = Date.now() - 1;
+    f.store.saveStandby(record);
+    expect(f.core.standbyView(c.sid!).can_auto_respond).toBe(false);
+    await manager.tick();
+    expect(f.store.standby(c.sid!)?.health).toBe('stalled');
+    manager.watch(c.sid!, 'second', 'attach');
+    manager.watch(c.sid!, 'first', 'detach');
+    expect(f.store.standby(c.sid!)?.lease?.token).toBe('second');
+    manager.watch(c.sid!, 'second', 'detach');
+    expect(f.core.standbyView(c.sid!).can_auto_respond).toBe(false);
+  },
+);
+
+it('upgrades an earlier manual host registration on join(auto)', async () => {
+  f = fixture();
+  const { c } = await f.squad();
+  manager = new StandbyManager(f.core);
+  manager.configure({ sid: c.sid, action: 'start', adapter: 'manual' });
+  expect(manager.configure({ sid: c.sid, action: 'start' }).wake_mode).toBe('claude');
+});
+it('retries safely after a busy race that happened before any delivery attempt', async () => {
+  const { c, e, host } = await setup();
+  await f.core.handle(c, 'msg.send', { to: e.sid, message: 'later' });
+  const enqueue = host.enqueue;
+  host.enqueue = async () => {
+    throw new WakeDeferred('busy before submission');
+  };
+  await manager.tick();
+  expect(f.store.standby(e.sid!)?.request).toBeUndefined();
+  expect(f.store.standby(e.sid!)?.health).toBe('healthy');
+  host.enqueue = enqueue;
+  await manager.tick();
+  expect(host.requests).toHaveLength(1);
+});
+it('keeps broadcast info quiet, wakes for direct info and reminds host sessions to re-arm on start', async () => {
+  const { c, e, host } = await setup();
+  await f.core.handle(c, 'msg.send', { to: 'all', type: 'info', message: 'quiet' });
+  await manager.tick();
+  expect(host.requests).toHaveLength(0);
+  await f.core.handle(c, 'msg.send', { to: e.sid, type: 'info', message: 'direct' });
+  await manager.tick();
+  expect(host.requests).toHaveLength(1);
+  manager.configure({ sid: c.sid, action: 'start' });
+  const hook = await f.hook(c, 'SessionStart');
+  expect(hook.inject).toContain('re-arm');
+  expect(hook.inject).not.toContain('direct');
 });
