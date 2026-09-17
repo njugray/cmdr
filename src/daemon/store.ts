@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { Task, Question, Artifact, Submission } from '../shared/dashboard.js';
 import {
   terminalWork,
   type LifecycleEvent,
@@ -27,7 +28,11 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events(event_seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS standby(sid TEXT PRIMARY KEY, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS revoked(sid TEXT PRIMARY KEY, replacement TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS revoked(sid TEXT PRIMARY KEY, replacement TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS dashboard_records(kind TEXT NOT NULL, id TEXT NOT NULL, squad_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(kind,id));
+      CREATE INDEX IF NOT EXISTS dashboard_squad ON dashboard_records(squad_id,kind);
+      CREATE TABLE IF NOT EXISTS dashboard_links(command_id TEXT PRIMARY KEY, task_id TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS dashboard_submissions(id TEXT PRIMARY KEY, payload TEXT NOT NULL);`);
     this.migrateWork();
   }
   private migrateWork() {
@@ -286,8 +291,67 @@ export class Store {
   revoked(sid: string): boolean {
     return !!this.db.prepare('SELECT sid FROM revoked WHERE sid=?').get(sid)?.sid;
   }
+  dashboardRecord<K extends 'task' | 'question' | 'artifact'>(
+    kind: K,
+    id: string,
+  ): { task: Task; question: Question; artifact: Artifact }[K] | undefined {
+    const row = this.db
+      .prepare('SELECT payload FROM dashboard_records WHERE kind=? AND id=?')
+      .get(kind, id);
+    return typeof row?.payload === 'string' ? JSON.parse(row.payload) : undefined;
+  }
+  dashboardRecords<K extends 'task' | 'question' | 'artifact'>(
+    kind: K,
+    squad: string,
+  ): { task: Task; question: Question; artifact: Artifact }[K][] {
+    return this.unpack(
+      this.db
+        .prepare('SELECT payload FROM dashboard_records WHERE kind=? AND squad_id=? ORDER BY rowid')
+        .all(kind, squad),
+    );
+  }
+  saveDashboard(kind: 'task' | 'question' | 'artifact', record: Task | Question | Artifact) {
+    this.db
+      .prepare(
+        'INSERT INTO dashboard_records VALUES (?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload',
+      )
+      .run(kind, record.id, record.squad_id, JSON.stringify(record));
+  }
+  linkTask(command: string, task: string) {
+    this.db.prepare('INSERT INTO dashboard_links VALUES (?,?)').run(command, task);
+  }
+  commandTask(command: string): Task | undefined {
+    const row = this.db
+      .prepare('SELECT task_id FROM dashboard_links WHERE command_id=?')
+      .get(command);
+    return typeof row?.task_id === 'string' ? this.dashboardRecord('task', row.task_id) : undefined;
+  }
+  submission(id: string): Submission | undefined {
+    const row = this.db.prepare('SELECT payload FROM dashboard_submissions WHERE id=?').get(id);
+    return typeof row?.payload === 'string' ? JSON.parse(row.payload) : undefined;
+  }
+  saveSubmission(submission: Submission) {
+    this.db
+      .prepare('INSERT INTO dashboard_submissions VALUES (?,?)')
+      .run(submission.input.submission_id, JSON.stringify(submission));
+  }
+  hasDashboard(squad: string) {
+    return !!this.db.prepare('SELECT id FROM dashboard_records WHERE squad_id=? LIMIT 1').get(squad)
+      ?.id;
+  }
+  recentEvents(squad: string): LifecycleEvent[] {
+    return this.unpack(
+      this.db
+        .prepare(
+          "SELECT payload FROM events WHERE json_extract(payload,'$.channel')=? ORDER BY event_seq DESC LIMIT 40",
+        )
+        .all(squad),
+    );
+  }
   purge() {
-    this.db.exec('DELETE FROM messages; DELETE FROM standby; DELETE FROM revoked;');
+    this.db.exec(
+      'DELETE FROM messages; DELETE FROM standby; DELETE FROM revoked; DELETE FROM dashboard_records; DELETE FROM dashboard_links; DELETE FROM dashboard_submissions;',
+    );
   }
   close() {
     this.db.close();

@@ -1,5 +1,6 @@
 import type { Agent } from './protocol.js';
-export const cmdrTool = /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read)$/;
+export const cmdrTool =
+  /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read|task|artifact)$/;
 export function detectAgent(env = process.env, hook?: Record<string, unknown>): Agent {
   if (env.CMDR_AGENT && /^[a-z][a-z0-9_-]{0,63}$/.test(env.CMDR_AGENT)) return env.CMDR_AGENT;
   if (env.ZCODE_PLUGIN_ROOT || env.ZCODE_PLUGIN_ID) return 'zcode';

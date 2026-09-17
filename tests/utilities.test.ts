@@ -28,6 +28,8 @@ it('detects hosts without treating generic clients as Codex', () => {
     'mcp__plugin_cmdr_cmdr__read',
     'mcp__plugin:cmdr:cmdr__list',
     'plugin:cmdr:cmdr:ask',
+    'mcp__cmdr__task',
+    'mcp__plugin_cmdr_cmdr__artifact',
   ])
     expect(cmdrTool.test(name)).toBe(true);
   for (const name of ['other__join', 'xcmdr__join', 'cmdr__destroy', 'Bash'])

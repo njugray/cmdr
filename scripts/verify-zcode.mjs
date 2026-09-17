@@ -143,9 +143,9 @@ try {
   console.log('ZCode cmdr MCP status:', JSON.stringify(status));
   assert.ok(status, 'ZCode must discover the plugin MCP server');
   assert.equal(status.status, 'connected');
-  assert.equal(status.toolCount, 7);
+  assert.equal(status.toolCount, 9);
   console.log(
-    'ZCode cached release passed integrity and connected to seven tools with the source directory removed. No model request was made.',
+    'ZCode cached release passed integrity and connected to nine tools with the source directory removed. No model request was made.',
   );
 } finally {
   for (const p of pending.values()) clearTimeout(p.timer);

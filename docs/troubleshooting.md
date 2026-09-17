@@ -16,7 +16,7 @@ cmdr doctor --plugin-root /absolute/path/to/host/cache/cmdr --deep
 
 The checker lives outside the bundles. If the selected plugin's CLI bundle is missing, its `bin/cmdr doctor` can still report the damage with Node installed. Alternatively use an intact global CLI to inspect that cache. If Node is missing, the shell wrapper reports the Node requirement; install Node >=22.5 and retry. A missing checker requires reinstalling the complete package.
 
-`doctor` exits nonzero for fatal installation failures. `--deep` additionally initializes MCP, verifies exactly seven tools, and calls `list` to check the daemon. It uses a temporary `CMDR_HOME`, an eight-second probe timeout and child cleanup. It does not join a squad or operate on the user's normal queues. Static checks do not start the normal daemon; reporting “daemon not running” is not itself an installation error.
+`doctor` exits nonzero for fatal installation failures. `--deep` additionally initializes MCP, verifies exactly nine tools, and calls `list` to check the daemon. It uses a temporary `CMDR_HOME`, an eight-second probe timeout and child cleanup. It does not join a squad or operate on the user's normal queues. Static checks do not start the normal daemon; reporting “daemon not running” is not itself an installation error.
 
 The states are distinct:
 
@@ -37,7 +37,7 @@ ZCode has four supported plugin hooks; SessionEnd is replaced by EOF detection. 
 
 ## ZCode cache has no `dist/`
 
-If `bin/cmdr-mcp` exists but `dist/mcp.mjs` is missing, the launcher exits before MCP initializes, so none of the seven tools can register. A working global `cmdr` uses a separate installation and does not repair this cache. Missing `dist/integrity.json` also prevents verification of otherwise present manifests; this alone does not prove those manifests were modified. Hooks fail open and record a rate-limited `bootstrap-runtime` diagnostic when possible, so a quiet hook does not establish a healthy installation.
+If `bin/cmdr-mcp` exists but `dist/mcp.mjs` is missing, the launcher exits before MCP initializes, so none of the nine tools can register. A working global `cmdr` uses a separate installation and does not repair this cache. Missing `dist/integrity.json` also prevents verification of otherwise present manifests; this alone does not prove those manifests were modified. Hooks fail open and record a rate-limited `bootstrap-runtime` diagnostic when possible, so a quiet hook does not establish a healthy installation.
 
 Check the registered marketplace source first. An unbuilt Git checkout contains manifests and launchers but no generated runtime. The missing files alone cannot distinguish an unbuilt source from an incomplete cache copy.
 

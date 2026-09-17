@@ -32,6 +32,7 @@ export async function runSession(argv: string[]) {
         'reply-to': { type: 'string' },
         priority: { type: 'string' },
         'task-key': { type: 'string' },
+        'task-id': { type: 'string' },
         reassign: { type: 'string' },
         rebind: { type: 'string' },
         takeover: { type: 'boolean' },
@@ -49,13 +50,13 @@ export async function runSession(argv: string[]) {
     });
     if (v.help) {
       console.log(
-        'cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual.',
+        'cmdr session join|list|send|report|ask|read|leave|task|artifact --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual.',
       );
       return;
     }
     const action = args[0] as Tool;
     if (!Object.hasOwn(schemas, action))
-      throw new Error('Expected session join|list|send|report|ask|read|leave');
+      throw new Error('Expected session join|list|send|report|ask|read|leave|task|artifact');
     const agent = v.agent || process.env.CMDR_AGENT;
     const native = v['native-id'] || process.env.CMDR_SESSION_ID;
     if (!agent || !/^[a-z][a-z0-9_-]{0,63}$/.test(agent))
@@ -85,6 +86,7 @@ export async function runSession(argv: string[]) {
       'reply-to': 'reply_to',
       priority: 'priority',
       'task-key': 'task_key',
+      'task-id': 'task_id',
       reassign: 'reassign',
       rebind: 'rebind',
       takeover: 'takeover',

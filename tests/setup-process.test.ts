@@ -104,7 +104,7 @@ it.each(['claude-code', 'codex', 'zcode'])(
     expect(existsSync(f.state)).toBe(false);
     const installed = JSON.parse((await f.cli(args, source)).stdout);
     expect(installed.ok).toBe(true);
-    expect(installed.mcp.tools).toHaveLength(7);
+    expect(installed.mcp.tools).toHaveLength(9);
     expect(installed.backup).toBeTruthy();
     expect(existsSync(join(f.state, 'cmdr.db'))).toBe(false);
     expect(readFileSync(join(installed.skill, 'references/setup.md'), 'utf8')).toContain(
@@ -141,6 +141,11 @@ it.each(['claude-code', 'codex', 'zcode'])(
     expect((await run(installed.cli, ['--help'], { env: f.env })).stdout).toContain(
       'setup --agent',
     );
+    const dashboard = JSON.parse(
+      (await run(installed.cli, ['dashboard', '--no-open'], { env: f.env })).stdout,
+    );
+    expect((await fetch(new URL('/app.js', dashboard.url))).status).toBe(200);
+    expect(dashboard.home).toBe(f.state);
     const client = new Client({ name: 'setup-test', version: '1' });
     const native = `setup-${agent}`;
     const env = {
@@ -158,7 +163,7 @@ it.each(['claude-code', 'codex', 'zcode'])(
       }),
     );
     clients.push(client);
-    expect((await client.listTools()).tools).toHaveLength(7);
+    expect((await client.listTools()).tools).toHaveLength(9);
     const expectedAgent = agent === 'claude-code' ? 'claude' : agent;
     let input: any = { squad_name: 'setup', standby: agent === 'codex' ? 'manual' : 'auto' };
     if (agent !== 'claude-code') {

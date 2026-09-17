@@ -55,6 +55,7 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
   home = mkdtempSync(join(tmpdir(), 'cmdr-process-'));
   const [c, e] = await Promise.all([host('claude', 'c'), host('zcode', 'e')]);
   expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual([
+    'artifact',
     'ask',
     'join',
     'leave',
@@ -62,6 +63,7 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
     'read',
     'report',
     'send',
+    'task',
   ]);
   const q = await tool(c, 'join', { role: 'commander', squad_name: 'Processes' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id, name: 'tests' });
@@ -130,6 +132,23 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
     ),
   );
   expect(stamp.hookSpecificOutput.updatedInput).toEqual({ squad_name: 'x', _cmdr_session: 's' });
+  for (const name of ['task', 'artifact']) {
+    const dashboardStamp = JSON.parse(
+      await invoke(
+        'PreToolUse',
+        {
+          session_id: 's',
+          tool_name: `mcp__plugin_cmdr_cmdr__${name}`,
+          tool_input: { action: 'list' },
+        },
+        { CMDR_AGENT: 'zcode' },
+      ),
+    );
+    expect(dashboardStamp.hookSpecificOutput.updatedInput).toEqual({
+      action: 'list',
+      _cmdr_session: 's',
+    });
+  }
   expect(await invoke('Stop', { session_id: 's' })).toBe('');
   expect(existsSync(paths(home).socket)).toBe(false);
   const c = await host('zcode', 's');

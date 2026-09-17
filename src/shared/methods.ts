@@ -7,4 +7,6 @@ export const methods: Record<Tool, string> = {
   ask: 'msg.ask',
   read: 'msg.read',
   leave: 'session.leave',
+  task: 'dashboard.task',
+  artifact: 'dashboard.artifact',
 };

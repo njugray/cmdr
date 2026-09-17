@@ -13,9 +13,9 @@ npm pack
 npm publish ./cmdr-mcp-0.4.0.tgz --dry-run --access public --registry https://registry.npmjs.org/
 ```
 
-涉及 ZCode 的发布另运行 `npm run verify:zcode`：从实际 tarball 安装到隔离缓存，核对完整性并移走安装源后验证 7 个工具；需要本机 ZCode runtime。
+涉及 ZCode 的发布另运行 `npm run verify:zcode`：从实际 tarball 安装到隔离缓存，核对完整性并移走安装源后验证 9 个工具；需要本机 ZCode runtime。
 
-`npm run check` 包括格式、类型、构建、测试以及临时目录中的 npm 包离线安装验证：检查发布资源、安装后 marketplace 路径、CLI 和 7 个 MCP 工具。`npm pack` 通过 `prepack` 生成 4 个运行入口及第三方许可证声明，输出 `cmdr-mcp-0.4.0.tgz`。源码、测试和开发依赖不进入发布包。
+`npm run check` 包括格式、类型、构建、测试以及临时目录中的 npm 包离线安装验证：检查发布资源、安装后 marketplace 路径、CLI 和 9 个 MCP 工具。`npm pack` 通过 `prepack` 生成 4 个运行入口及第三方许可证声明，输出 `cmdr-mcp-0.4.0.tgz`。源码、测试和开发依赖不进入发布包。
 
 检查 `git diff`，确认版本与预期一致，构建未意外修改宿主 manifests。发布前保留经过验证的源码提交；不要手改或提交 `plugins/cmdr/dist/`、`THIRD_PARTY_NOTICES.txt` 和 `.tgz`。
 

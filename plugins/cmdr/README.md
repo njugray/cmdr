@@ -16,4 +16,6 @@ Codex wakes through proxy or queue; Claude Monitor and ZCode background Bash run
 
 [Installation and usage](https://github.com/njugray/cmdr#readme) · [Host integration](https://github.com/njugray/cmdr/blob/main/docs/agent-integration.md) · [Verification scope](https://github.com/njugray/cmdr/blob/main/docs/implementation.md)
 
-The npm package is `cmdr-mcp`. Use `cmdr doctor --plugin-root <actual cache directory> --deep` to verify a cached installation. Static integrity checks run without the target CLI bundle; deep probes use temporary state. `cmdr session` provides all seven member operations with explicit host/native identity when MCP tools are unavailable. See [troubleshooting](https://github.com/njugray/cmdr/blob/main/docs/troubleshooting.md) for cancellation, identity and hook diagnostics.
+The npm package is `cmdr-mcp`. Use `cmdr doctor --plugin-root <actual cache directory> --deep` to verify a cached installation. Static integrity checks run without the target CLI bundle; deep probes use temporary state. `cmdr session` provides all nine member operations with explicit host/native identity when MCP tools are unavailable. See [troubleshooting](https://github.com/njugray/cmdr/blob/main/docs/troubleshooting.md) for cancellation, identity and hook diagnostics.
+
+The dashboard also accepts user notes for the selected squad’s commander through the existing inbox. Sending a note does not directly change tasks; see [dashboard operations](../../docs/dashboard.md).

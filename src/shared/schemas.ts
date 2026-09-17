@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LIMITS, fail } from './protocol.js';
+import { taskFields, questionFields, artifactFields } from './dashboard-schemas.js';
 
 const text = z
   .string()
@@ -43,8 +44,17 @@ export const schemas = {
     })
     .strict(),
   ask: z
-    .object({ ...identity, question: text, wait, reply_to: z.string().optional(), data })
+    .object({
+      ...identity,
+      ...questionFields,
+      question: text.optional(),
+      wait,
+      reply_to: z.string().optional(),
+      data,
+    })
     .strict(),
+  task: z.object({ ...identity, ...taskFields }).strict(),
+  artifact: z.object({ ...identity, ...artifactFields }).strict(),
   send: z
     .object({
       ...identity,
@@ -52,6 +62,7 @@ export const schemas = {
       message: text,
       type: z.enum(['command', 'cancel', 'answer', 'info']).default('command'),
       task_key: z.string().min(1).max(128).optional(),
+      task_id: z.string().min(1).max(128).optional(),
       reassign: z.string().optional(),
       attention: z.boolean().optional(),
       priority: z.enum(['high', 'normal', 'low']).optional(),

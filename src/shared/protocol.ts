@@ -77,6 +77,7 @@ export interface Message {
   delivered_at: number | null;
   work?: Work;
   task_key?: string;
+  task_id?: string;
   blocked_by?: string;
 }
 
