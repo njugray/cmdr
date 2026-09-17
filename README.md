@@ -8,13 +8,13 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-**One-command setup (from 0.3.0):** choose your host; replace `claude-code` with `codex` or `zcode` as appropriate.
+**One-command setup (0.3.0, not yet released):** replace `claude-code` with `codex` or `zcode` for your host.
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 ```
 
-Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then verifies all seven tools in temporary state. It preserves unrelated host configuration and saves backups. Repeat the command to upgrade; add `--dry-run` to preview. It does not restart an existing daemon or bypass host hook trust. Open a new session afterward and complete the host's trust prompts. The CLI path is printed (normally `~/.cmdr/bin/cmdr`); no global npm install or shell profile change is needed. **Until 0.3.0 is published, test from a built checkout with `plugins/cmdr/bin/cmdr setup --agent …`.**
+Setup installs the runtime, skill, MCP and hooks while preserving existing settings. Repeat to upgrade; add `--dry-run` to preview. Open a new session and complete any host trust prompts. For a built checkout, use `plugins/cmdr/bin/cmdr setup --agent …`.
 
 For skill files only:
 
@@ -22,7 +22,7 @@ For skill files only:
 npx skills add njugray/cmdr --skill cmdr
 ```
 
-The skill includes commander/executor references and setup guidance. The skills installer does not register MCP or install the runtime; an existing healthy cmdr integration is sufficient, otherwise run setup. Prefer one integration per host: standalone setup or the native plugin below. See [setup, upgrades and configuration paths](docs/setup.md).
+The skill requires a working cmdr runtime and MCP connection. Use setup or the native plugin below for those components. See [installation details](docs/setup.md).
 
 The npm package is **`cmdr-mcp`**; the CLI and host plugin remain **`cmdr`**. For a global CLI and native plugin installation:
 

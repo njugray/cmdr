@@ -62,7 +62,7 @@ export async function runSetup(argv: string[], sourceRoot: string) {
   });
   if (values.help) {
     console.log(
-      'cmdr setup --agent claude-code|codex|zcode [--config-dir PATH] [--dry-run] [--json]\nInstalls this bundled release for the current user. Existing unrelated configuration is preserved. Repeat to upgrade. CMDR_HOME selects the persistent runtime/state directory. --config-dir overrides the host user configuration directory (not a project scope).',
+      'cmdr setup --agent claude-code|codex|zcode [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile.',
     );
     return;
   }
@@ -116,35 +116,29 @@ export async function runSetup(argv: string[], sourceRoot: string) {
       );
     if (merged.serverDisabled)
       warnings.push('The existing cmdr MCP server remains disabled; enable it in Codex.');
-    warnings.push(
-      'Review and trust the cmdr hooks in Codex when prompted. Setup does not change hook trust.',
+  } else {
+    const settingsPath = configPath(
+      join(hostRoot, host === 'claude' ? 'settings.json' : 'cli/config.json'),
     );
-  } else if (host === 'claude') {
-    // CLAUDE_CONFIG_DIR relocates both settings and the user MCP config.
-    config = configPath(
-      values['config-dir'] || process.env.CLAUDE_CONFIG_DIR
-        ? join(hostRoot, '.claude.json')
-        : join(homedir(), '.claude.json'),
-    );
-    const settingsPath = configPath(join(hostRoot, 'settings.json'));
     const settings = jsonConfig(read(settingsPath), settingsPath);
     checkPlugin(settings, host);
-    const servers = jsonConfig(read(config), config);
+    // Claude keeps user MCP servers outside settings; ZCode uses the same file.
+    config =
+      host === 'claude'
+        ? configPath(
+            values['config-dir'] || process.env.CLAUDE_CONFIG_DIR
+              ? join(hostRoot, '.claude.json')
+              : join(homedir(), '.claude.json'),
+          )
+        : settingsPath;
+    const servers = config === settingsPath ? settings : jsonConfig(read(config), config);
     mergeJsonServer(servers, mcp, host);
-    writeConfig(config, servers);
-    if (mergeHooks(settings, hook, host))
-      warnings.push('Claude Code hooks are explicitly disabled; that preference was preserved.');
-    writeConfig(settingsPath, settings);
-  } else {
-    config = configPath(join(hostRoot, 'cli/config.json'));
-    const settings = jsonConfig(read(config), config);
-    checkPlugin(settings, host);
-    mergeJsonServer(settings, mcp, host);
     if (mergeHooks(settings, hook, host))
       warnings.push(
-        'ZCode user hooks are explicitly disabled; enable hooks.enabled to use identity stamps and reminders.',
+        `${host} user hooks remain disabled; enable them in the host settings to use lifecycle reminders.`,
       );
-    writeConfig(config, settings);
+    writeConfig(settingsPath, settings);
+    if (config !== settingsPath) writeConfig(config, servers);
   }
   for (const [path, entry, boundHost] of [
     [join(bin, 'cmdr'), 'cmdr', undefined],
@@ -177,8 +171,7 @@ export async function runSetup(argv: string[], sourceRoot: string) {
     dry_run: !!values['dry-run'],
     changed: changes.map((change) => change.path),
     warnings,
-    restart:
-      'Start a new host session after setup. Automatic wake is available only where the host adapter reports a healthy managed listener.',
+    restart: 'Start a new host session and review any hook trust prompts.',
   };
   const output = (extra: Record<string, unknown>) => {
     if (values.json) console.log(JSON.stringify({ ...result, ...extra }, null, 2));

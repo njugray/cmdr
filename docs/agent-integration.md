@@ -4,7 +4,7 @@ Build a source checkout with `npm ci && npm run build`, or use the unpacked/inst
 
 The daemon and message model accept arbitrary lowercase Agent IDs (`[a-z][a-z0-9_-]{0,63}`), not a closed Claude/Codex enum. All hosts share the same seven MCP tools. Specialized adapters add identity, working-directory discovery and lifecycle reminders; none is required to use the queue.
 
-From 0.3.0, `cmdr setup --agent claude-code|codex|zcode` installs a persistent runtime, a self-contained skill and user-level MCP/hooks without registering a native plugin. It preserves unrelated settings and verifies MCP in isolated state. See [standalone setup](setup.md) for configuration locations, repeat installs, backups and custom profiles. Choose one integration per host to avoid duplicate servers/hooks. `npx skills add njugray/cmdr --skill cmdr` installs only skill instructions and references.
+For automatic runtime, skill and user MCP/hooks installation, use [standalone setup](setup.md). The manual and native-plugin contracts follow below.
 
 ## Other MCP hosts
 

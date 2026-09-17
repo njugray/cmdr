@@ -134,20 +134,25 @@ export function mergeHooks(config: ObjectValue, executable: string, host: SetupH
   for (const event of events) {
     const entries = hooks[event] ?? [];
     if (!Array.isArray(entries)) throw new Error(`hooks.${event} must be an array.`);
-    const command = `${shellQuote(executable)} ${event}`;
+    const handler =
+      host === 'zcode'
+        ? { type: 'process', command: executable, args: [event], enabled: true, timeoutMs: 5000 }
+        : {
+            type: 'command',
+            command: `${shellQuote(executable)} ${event}`,
+            timeout: event === 'SessionEnd' ? 1 : 5,
+          };
     const retained = entries.flatMap((entry: unknown) => {
       const group = object(entry, `hooks.${event} entry`);
       if (!Array.isArray(group.hooks))
         throw new Error(`hooks.${event} entry must contain a hooks array.`);
-      const handlers = group.hooks.filter((handler: unknown) => {
-        const hook = object(handler, 'hook handler');
-        return host === 'zcode'
-          ? !(
-              hook.type === 'process' &&
-              hook.command === executable &&
-              isDeepStrictEqual(hook.args, [event])
-            )
-          : !(hook.type === 'command' && hook.command === command);
+      const handlers = group.hooks.filter((value: unknown) => {
+        const hook = object(value, 'hook handler');
+        return !(
+          hook.type === handler.type &&
+          hook.command === handler.command &&
+          (host !== 'zcode' || isDeepStrictEqual(hook.args, handler.args))
+        );
       });
       return handlers.length === group.hooks.length
         ? [group]
@@ -155,22 +160,7 @@ export function mergeHooks(config: ObjectValue, executable: string, host: SetupH
           ? [{ ...group, hooks: handlers }]
           : [];
     });
-    hooks[event] = [
-      ...retained,
-      {
-        hooks: [
-          host === 'zcode'
-            ? {
-                type: 'process',
-                command: executable,
-                args: [event],
-                enabled: true,
-                timeoutMs: 5000,
-              }
-            : { type: 'command', command, timeout: event === 'SessionEnd' ? 1 : 5 },
-        ],
-      },
-    ];
+    hooks[event] = [...retained, { hooks: [handler] }];
   }
   return disabled;
 }

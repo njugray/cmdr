@@ -8,13 +8,13 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
-**从 0.3.0 起支持一条命令完整安装**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
+**一条命令完整安装（0.3.0，待发布）**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 ```
 
-安装器会持久化运行时、安装自包含的 `cmdr` 技能、合并 MCP 和用户 hooks，并在临时状态目录检查 7 个工具。保留其他宿主配置，修改前保存备份；重复执行可升级，增加 `--dry-run` 可预览。不会重启正在运行的 daemon，也不会绕过宿主的 hooks 信任确认。完成后新开会话并处理宿主提示。CLI 路径会打印出来，通常是 `~/.cmdr/bin/cmdr`，无需全局 npm 安装或修改 shell 配置。**0.3.0 发布前，在构建后的分支上运行 `plugins/cmdr/bin/cmdr setup --agent …` 验证。**
+安装器会安装运行时、技能、MCP 和 hooks，并保留已有配置。重复执行可升级，增加 `--dry-run` 可预览。完成后新开会话并处理宿主信任提示。构建后的源码可直接运行 `plugins/cmdr/bin/cmdr setup --agent …`。
 
 只安装技能文件时使用：
 
@@ -22,7 +22,7 @@ npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 npx skills add njugray/cmdr --skill cmdr
 ```
 
-这个技能自带指挥官、执行方和初始化说明。skills 安装器不会安装运行时或注册 MCP；已有可用 cmdr 集成时可直接使用，否则再执行 setup。同一宿主选择独立 setup 或下面的原生插件安装方式，避免重复接入。配置位置、升级和恢复详见[安装器说明](setup.md)。
+技能需要可用的 cmdr 运行时和 MCP 连接，可通过 setup 或下面的原生插件方式安装。配置位置、升级和恢复见[安装说明](setup.md)。
 
 npm 包名为 **`cmdr-mcp`**，CLI 和宿主插件仍叫 **`cmdr`**。需要全局 CLI 或原生插件时也可安装：
 

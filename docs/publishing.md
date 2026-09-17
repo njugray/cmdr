@@ -1,6 +1,6 @@
 # npm 发布
 
-待发布版本为 `cmdr-mcp@0.3.0`，新增一条命令 setup 和自包含技能；修改版本号不代表已经发布。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。全局安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
+待发布版本为 `cmdr-mcp@0.3.0`。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。全局安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
 
 ## 准备与验证
 
@@ -49,7 +49,7 @@ npm install --global cmdr-mcp@0.3.0 --registry https://registry.npmjs.org/
 cmdr --help
 ```
 
-独立安装可运行 `npx -y --package=cmdr-mcp@0.3.0 cmdr setup --agent claude-code`（按实际宿主替换 agent）。`verify:package` 会用真实 tarball 离线执行同一 npx 入口，删除 npx 缓存后检查持久化运行时及重复安装。原生插件按照[安装说明](README.zh-CN.md#安装)注册包根目录；宿主缓存升级后需要刷新或重装，同版本测试代码变动需要重启对应测试 daemon。发布后移除首页中 0.3.0 尚未发布的分支验证提示。
+按照[安装说明](README.zh-CN.md#安装)运行 setup 或注册原生插件。宿主缓存升级后需要刷新或重装，同版本测试代码变动需要重启对应测试 daemon。发布后移除首页的待发布提示。
 
 npm 命令行为参考：[npm publish 官方文档](https://docs.npmjs.com/cli/v11/commands/npm-publish/)。
 

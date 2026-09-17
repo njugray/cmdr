@@ -2,7 +2,7 @@
 
 Connect local Claude Code, Codex, ZCode and other MCP-capable sessions as a squad. Requires macOS/Linux and Node.js ≥22.5 (24 recommended); npm distribution packages include all runtime dependencies. A source checkout requires `npm ci && npm run build` at the repository root before installation; generated `dist` files are not tracked by Git.
 
-From 0.3.0, `npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code` installs a persistent runtime, the self-contained `cmdr` skill, MCP and user hooks. Choose `codex` or `zcode` for those hosts. Repeat to upgrade; add `--dry-run` to preview. `npx skills add njugray/cmdr --skill cmdr` installs the skill alone. Use either standalone setup or the native plugin for a host, avoiding duplicate integrations. See [standalone setup](https://github.com/njugray/cmdr/blob/main/docs/setup.md).
+For installation through `cmdr setup` or `npx skills`, see [standalone setup](https://github.com/njugray/cmdr/blob/main/docs/setup.md). Use one installation method per host to avoid duplicate tools and hooks.
 
 In each session enter `/cmdr my-project`. Joining defaults to executor, even for a new channel. Explicitly use role="commander" to claim command; no commander is required to retain a channel. Without slash commands, ask the Agent to call `join(squad_name="my-project")`.
 
