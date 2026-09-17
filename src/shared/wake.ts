@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 export function actionable(message: Message, sid?: string): boolean {
   if (message.type === 'command') return !terminalWork(message);
   if (['cancel', 'ask', 'answer', 'system'].includes(message.type)) return true;
-  if (message.type === 'report')
-    return ['done', 'failed', 'blocked', 'cancelled'].includes(String(message.data?.status));
+  // Attention is assigned when enqueued and survives compact events with data=null.
   return (
     message.attn ||
-    (message.direct !== false &&
+    (message.type === 'info' &&
+      message.direct !== false &&
       !message.to_sid.startsWith('squad:') &&
       (!sid || message.to_sid === sid))
   );

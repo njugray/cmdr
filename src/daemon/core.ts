@@ -1365,7 +1365,7 @@ export class Core {
                   ? {
                       ...e.message,
                       body: e.message.body.slice(0, 160),
-                      data: e.message.type === 'report' ? { status: e.message.data?.status } : null,
+                      data: null,
                     }
                   : undefined,
               })),

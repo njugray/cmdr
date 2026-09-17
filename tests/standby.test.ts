@@ -1,8 +1,10 @@
 import { afterEach, expect, it } from 'vitest';
 import { fixture } from './helpers.js';
 import { StandbyManager } from '../src/daemon/standby.js';
+import type { Context } from '../src/daemon/core.js';
 import type { HostAdapter } from '../src/daemon/adapters/codex.js';
-import { WakeDeferred, type WakeRequest } from '../src/shared/protocol.js';
+import { WakeDeferred, type WakeRequest, type LifecycleEvent } from '../src/shared/protocol.js';
+import { wakeEvent } from '../src/shared/wake.js';
 let f: ReturnType<typeof fixture>, manager: StandbyManager;
 class Host implements HostAdapter {
   status: 'busy' | 'idle' | 'unknown' = 'idle';
@@ -167,6 +169,42 @@ it('does not wake a commander for working/ready, but does for actionable reports
   await f.core.handle(e, 'msg.report', { status: 'done', message: 'done' });
   await manager.tick();
   expect(host.requests).toHaveLength(1);
+});
+it('preserves report attention decisions when live and replayed events omit data', async () => {
+  f = fixture();
+  const { c, e } = await f.squad();
+  const notices: LifecycleEvent[] = [];
+  const observer: Context = {
+    notify: (method, value) => {
+      if (method === 'lifecycle.event') notices.push(value as LifecycleEvent);
+    },
+  };
+  f.core.connect(observer);
+  await f.core.handle(observer, 'session.register', { kind: 'cli' });
+  const cursor = f.store.eventCursor();
+  await f.core.handle(observer, 'admin.tail', { for: c.sid, after: cursor });
+  for (const [status, attention] of [
+    ['ready', false],
+    ['working', false],
+    ['done', true],
+    ['failed', true],
+    ['blocked', true],
+    ['cancelled', true],
+  ] as const) {
+    const report = await f.core.handle(e, 'msg.report', {
+      status,
+      message: status,
+      data: { private: 'hidden' },
+    });
+    const live = notices.find((event) => event.message_id === report.id)!;
+    expect(live.message).toMatchObject({ data: null, attn: attention });
+    expect(wakeEvent(live, c.sid)).toBe(attention);
+    const stored = f.store.events(cursor).find((event) => event.message_id === report.id)!;
+    expect(stored.message?.data).toEqual({ private: 'hidden', status });
+    expect(wakeEvent(stored, c.sid)).toBe(attention);
+  }
+  const replay = await f.core.handle(observer, 'admin.events', { for: c.sid, after: cursor });
+  expect(replay.events).toEqual(notices);
 });
 it('exposes unsupported hosts as manual and stops/resumes a persisted listener', async () => {
   const { c, e, host } = await setup();

@@ -93,23 +93,55 @@ it('actionable tail filters role-inbox reports and starts at now without losing 
       (await command(['status'])).clients.some((c: any) => c.observing?.for === 'claude:c'),
     )
     .toBe(true);
-  await member('custom', 'e', 'report', { status: 'ready', message: 'quiet' });
-  const done = await member('custom', 'e', 'report', { status: 'done', message: 'new' });
-  await expect.poll(() => watch.output()).toContain(done.id);
+  const quietIds: string[] = [];
+  for (const status of ['ready', 'working'])
+    quietIds.push((await member('custom', 'e', 'report', { status, message: 'quiet' })).id);
+  const reports: { id: string; status: string }[] = [];
+  for (const status of ['done', 'failed', 'blocked', 'cancelled']) {
+    const report = await member('custom', 'e', 'report', {
+      status,
+      message: 'new',
+      data: { private: 'hidden' },
+    });
+    reports.push({ id: report.id, status });
+    // Multiple reports must arrive through this same long-lived subscription.
+    await expect.poll(() => watch.output()).toContain(report.id);
+  }
   expect(watch.output()).not.toContain(old.id);
-  expect(watch.output()).not.toContain('quiet');
+  const parseEvents = (output: string) =>
+    output
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+  const live = parseEvents(watch.output());
+  expect(live.map((event) => event.message_id)).toEqual(reports.map((report) => report.id));
+  for (const event of live) expect(event.message).toMatchObject({ data: null, attn: true });
   const replay = await run(
     cli,
     ['tail', '--actionable', '--json', '--for', 'claude:c', '--after', '0'],
     { env: env() },
   );
-  expect(replay.stdout).toContain(done.id);
-  expect(replay.stdout).not.toContain('quiet');
+  const replayed = parseEvents(replay.stdout);
+  expect(
+    replayed.filter((event) => reports.some((report) => report.id === event.message_id)),
+  ).toEqual(live);
+  for (const id of quietIds) expect(replay.stdout).not.toContain(id);
+  const full = await run(
+    cli,
+    ['tail', '--actionable', '--json', '--full', '--for', 'claude:c', '--after', '0'],
+    { env: env() },
+  );
+  const fullEvents = parseEvents(full.stdout);
+  for (const report of reports)
+    expect(fullEvents.find((event) => event.message_id === report.id)?.message.data).toEqual({
+      private: 'hidden',
+      status: report.status,
+    });
   const line = await run(
     cli,
     ['tail', '--actionable', '--format', 'line', '--for', 'claude:c', '--after', '0'],
     { env: env() },
   );
-  expect(line.stdout).toContain(done.id);
+  for (const report of reports) expect(line.stdout).toContain(report.id);
   expect(line.stdout).not.toContain(' old');
 }, 15000);

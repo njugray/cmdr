@@ -65,6 +65,8 @@ On startup or after a wake, use ordinary `read` and `read(recover=true)`. Recove
 
 All paths share the same actionable policy: command, cancel, ask, answer, system, terminal/blocked reports, attention-marked info and direct info. working/ready reports and broadcast info without attention are quiet. Commands gated by reassignment remain blocked. Observation does not consume messages or accept tasks. Every wake must be followed by `read` and `read(recover=true)`, cancellation handling, and correlated working/terminal reports.
 
+Report attention comes from the daemon's `attn` flag, computed at enqueue time. Default live and replayed events both omit `message.data`; do not filter those events by `data.status`. Use the built-in `--actionable` filter. `--full` includes the original data when needed. A quiet long-lived subscription does not itself indicate a stalled connection; periodic reconnects are unnecessary.
+
 ```sh
 cmdr standby start --session SID
 cmdr standby status --session SID
