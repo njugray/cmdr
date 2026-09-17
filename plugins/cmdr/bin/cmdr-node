@@ -37,13 +37,13 @@ if [ -z "$CMDR_NODE" ]; then
 fi
 if [ -z "$CMDR_NODE" ]; then
   cmdr_failure node
-  [ "$CMDR_ENTRY" = hook ] && exit 0
+  [ "$CMDR_ENTRY" = hook ] && { echo "cmdr hook unavailable: Node >=22.5 required; run cmdr doctor." >&2; exit 0; }
   echo 'cmdr requires Node.js >=22.5 (24 recommended). Install Node and retry.' >&2
   exit 1
 fi
 if [ ! -f "$CMDR_BIN_DIR/../dist/$CMDR_ENTRY.mjs" ]; then
   cmdr_failure runtime
-  [ "$CMDR_ENTRY" = hook ] && exit 0
+  [ "$CMDR_ENTRY" = hook ] && { echo "cmdr hook unavailable: missing dist runtime; build or reinstall the plugin and run cmdr doctor --plugin-root PATH." >&2; exit 0; }
   if [ "$CMDR_ENTRY" = cli ] && [ "$1" = doctor ] && [ -f "$CMDR_BIN_DIR/cmdr-check.mjs" ]; then
     exec "$CMDR_NODE" "$CMDR_BIN_DIR/cmdr-check.mjs" "$CMDR_BIN_DIR/.."
   fi

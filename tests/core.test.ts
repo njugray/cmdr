@@ -10,7 +10,7 @@ describe('squads and queues', () => {
     const a = await f.session(),
       b = await f.session('zcode', 'b');
     const [first, second] = await Promise.all([
-      f.core.handle(a, 'session.join', { squad_name: ' Alpha ' }),
+      f.core.handle(a, 'session.join', { role: 'commander', squad_name: ' Alpha ' }),
       f.core.handle(b, 'session.join', { squad_name: 'alpha' }),
     ]);
     expect(first.me.role).toBe('commander');
@@ -98,9 +98,9 @@ describe('squads and queues', () => {
     await f.core.handle(e, 'msg.report', { status: 'done', message: 'done offline' });
     const ask = await f.core.handle(e, 'msg.ask', { question: 'next?' });
     const n = await f.session('zcode', 'new');
-    await expect(f.core.handle(n, 'session.join', { squad_name: 'alpha' })).rejects.toMatchObject({
-      code: 'SQUAD_ORPHANED',
-    });
+    expect((await f.core.handle(n, 'session.join', { squad_name: 'alpha' })).me.role).toBe(
+      'executor',
+    );
     await f.core.handle(n, 'session.join', { role: 'commander', squad: id });
     const result = await f.core.handle(n, 'msg.read');
     expect(result.messages.map((m: any) => m.body)).toEqual(['next?', 'done offline']);

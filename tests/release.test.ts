@@ -54,7 +54,7 @@ afterEach(async () => {
 });
 it('completes member CLI workflow and shares native identity with stamped MCP calls', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-release-'));
-  const q = await session('c', 'join', { squad_name: 'release' });
+  const q = await session('c', 'join', { role: 'commander', squad_name: 'release' });
   await session('e', 'join', { squad_name: 'release' });
   const sent = await session('c', 'send', { to: 'zcode:e', message: 'test command' });
   const messages = (await session('e', 'read')).messages;
@@ -102,7 +102,7 @@ it('completes member CLI workflow and shares native identity with stamped MCP ca
   expect(listing.sessions.filter((s: any) => s.sid === 'zcode:e')).toHaveLength(1);
   await client.close();
   expect((await session('c', 'list')).sessions.find((s: any) => s.sid === 'zcode:e').presence).toBe(
-    'offline',
+    'cli',
   );
   await session('e', 'leave');
   await session('c', 'leave', { dissolve: true });
@@ -111,7 +111,7 @@ it('completes member CLI workflow and shares native identity with stamped MCP ca
 }, 15000);
 it('CLI timeout and SIGTERM leave future messages unread and do not retry asks', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-cancel-'));
-  await session('c', 'join', { squad_name: 'cancel' });
+  await session('c', 'join', { role: 'commander', squad_name: 'cancel' });
   await session('e', 'join', { squad_name: 'cancel' });
   await session('e', 'read');
   await expect(
@@ -147,7 +147,7 @@ it('CLI timeout and SIGTERM leave future messages unread and do not retry asks',
         async () =>
           (await session('c', 'list')).sessions.find((s: any) => s.sid === 'zcode:e').presence,
       )
-      .toBe('online');
+      .toBe('cli');
     waiting.kill('SIGTERM');
     await exited;
   } finally {
@@ -168,7 +168,7 @@ it('rejects ambiguous identity and inappropriate member roles', async () => {
       env: { ...env(), CMDR_SESSION_ID: 'other' },
     }),
   ).rejects.toMatchObject({ code: 1 });
-  await session('c', 'join', { squad_name: 'x' });
+  await session('c', 'join', { role: 'commander', squad_name: 'x' });
   await session('e', 'join', { squad_name: 'x' });
   await expect(session('e', 'send', { to: 'all', message: 'not commander' })).rejects.toMatchObject(
     { code: 1 },

@@ -24,7 +24,7 @@ export function fixture(overrides = {}) {
   }
   async function squad() {
     const c = await session();
-    const q = await core.handle(c, 'session.join', { squad_name: 'Alpha' });
+    const q = await core.handle(c, 'session.join', { role: 'commander', squad_name: 'Alpha' });
     const e = await session('codex', 'executor');
     await core.handle(e, 'session.join', { role: 'executor', squad: q.squad.id, name: 'tests' });
     await core.handle(c, 'msg.read');

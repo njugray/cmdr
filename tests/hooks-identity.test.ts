@@ -6,7 +6,7 @@ afterEach(() => f?.close());
 it('stamps provisional identity without losing membership or messages', async () => {
   f = fixture();
   const p = await f.session('zcode', null, { cwd: null, wait_hint: 300 });
-  const joined = await f.core.handle(p, 'session.join', { squad_name: 'Mixed' });
+  const joined = await f.core.handle(p, 'session.join', { role: 'commander', squad_name: 'Mixed' });
   const old = p.sid!;
   await f.core.handle({ notify: () => {} }, 'hook.event', {
     agent: 'zcode',
@@ -31,7 +31,7 @@ it('migrates executor queues and waiting reads', async () => {
   f = fixture();
   const c = await f.session(),
     e = await f.session('codex', null);
-  const q = await f.core.handle(c, 'session.join', { squad_name: 'x' });
+  const q = await f.core.handle(c, 'session.join', { role: 'commander', squad_name: 'x' });
   await f.core.handle(e, 'session.join', { role: 'executor', squad: q.squad.id });
   const pending = f.core.handle(e, 'msg.read', { wait: 5 });
   await f.core.handle(e, 'session.identify', { native_id: 'bound' });
@@ -65,7 +65,7 @@ it('ready and working reports do not block Stop; done does', async () => {
 it('does not create ghost sessions on unknown SessionEnd, restores context and wait hints', async () => {
   f = fixture();
   const c = await f.session('codex', 'c', { wait_hint: 300 });
-  await f.core.handle(c, 'session.join', { squad_name: 'work' });
+  await f.core.handle(c, 'session.join', { role: 'commander', squad_name: 'work' });
   const result = await f.hook(c, 'SessionStart', { source: 'compact' });
   expect(result.inject).toContain('wait=300');
   await f.core.handle({ notify: () => {} }, 'hook.event', {
@@ -78,7 +78,7 @@ it('does not create ghost sessions on unknown SessionEnd, restores context and w
 it('rebinds Claude clear only when exactly one host process matches', async () => {
   f = fixture();
   const c = await f.session('claude', 'old', { host_pid: 12345, cwd: '/project' });
-  await f.core.handle(c, 'session.join', { squad_name: 'work' });
+  await f.core.handle(c, 'session.join', { role: 'commander', squad_name: 'work' });
   await f.core.handle({ notify: () => {} }, 'hook.event', {
     agent: 'claude',
     session_id: 'new',
@@ -99,7 +99,7 @@ it('keeps presence online until the last MCP connection closes', async () => {
   f.core.disconnect(b);
   expect(f.store.session(b.sid!)?.presence).toBe('offline');
 });
-it('expires messages and offline sessions and orphans an expired commander', async () => {
+it('retains channel membership independently of message retention and connection state', async () => {
   f = fixture({ ttlDays: 0.001 });
   const { c, e, id } = await f.squad();
   f.core.disconnect(c);
@@ -107,15 +107,15 @@ it('expires messages and offline sessions and orphans an expired commander', asy
   old.last_seen_at = Date.now() - 86400000;
   f.store.saveSession(old);
   f.core.housekeep();
-  expect(f.store.session(c.sid!)).toBeUndefined();
-  expect(f.store.squad(id)?.status).toBe('orphaned');
-  expect(f.store.queue(e.sid!).some((m) => m.body === 'commander_expired')).toBe(true);
+  expect(f.store.session(c.sid!)?.role).toBe('commander');
+  expect(f.store.squad(id)?.status).toBe('active');
+  expect(f.store.queue(e.sid!)).toHaveLength(0);
 });
 it('canonicalizes provisional ask senders so answers remain routable after identity binding', async () => {
   f = fixture();
   const c = await f.session(),
     e = await f.session('generic', null);
-  const q = await f.core.handle(c, 'session.join', { squad_name: 'identity' });
+  const q = await f.core.handle(c, 'session.join', { role: 'commander', squad_name: 'identity' });
   await f.core.handle(e, 'session.join', { role: 'executor', squad: q.squad.id });
   const ask = await f.core.handle(e, 'msg.ask', { question: 'question' });
   await f.core.handle(e, 'session.identify', { native_id: 'real' });

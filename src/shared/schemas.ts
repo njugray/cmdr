@@ -20,11 +20,15 @@ export const schemas = {
       name: z.string().trim().min(1).max(64).optional(),
       note: text.optional(),
       squad_name: z.string().trim().min(1).max(64).optional(),
+      takeover: z.boolean().default(false),
+      standby: z.enum(['auto', 'manual']).optional(),
+      rebind: z.string().optional(),
     })
     .strict(),
   list: z
     .object({
       ...identity,
+      full: z.boolean().default(false),
       scope: z.enum(['squad', 'all']).optional(),
       squad: z.string().optional(),
     })
@@ -32,7 +36,7 @@ export const schemas = {
   report: z
     .object({
       ...identity,
-      status: z.enum(['ready', 'working', 'blocked', 'done', 'failed']),
+      status: z.enum(['ready', 'working', 'blocked', 'done', 'failed', 'cancelled']),
       message: text,
       reply_to: z.string().optional(),
       data,
@@ -46,7 +50,10 @@ export const schemas = {
       ...identity,
       to: z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(1000)]),
       message: text,
-      type: z.enum(['command', 'answer', 'info']).default('command'),
+      type: z.enum(['command', 'cancel', 'answer', 'info']).default('command'),
+      task_key: z.string().min(1).max(128).optional(),
+      reassign: z.string().optional(),
+      attention: z.boolean().optional(),
       priority: z.enum(['high', 'normal', 'low']).optional(),
       reply_to: z.string().optional(),
       data,
@@ -60,6 +67,9 @@ export const schemas = {
       peek: z.boolean().default(false),
       history: z.boolean().default(false),
       since: z.string().optional(),
+      id: z.string().optional(),
+      recover: z.boolean().default(false),
+      full: z.boolean().default(false),
     })
     .strict(),
   leave: z

@@ -1,6 +1,6 @@
 # cmdr 项目指引
 
-cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。当前 v1 面向 macOS/Linux、单机单用户，使用 Unix socket 和 SQLite WAL。保持通用 MCP 宿主兼容性；创建 Agent、主动唤醒、远程传输和 executor 互发消息不属于当前范围，除非任务明确要求扩展。
+cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。当前 v1 面向 macOS/Linux、单机单用户，使用 Unix socket 和 SQLite WAL。保持通用 MCP 宿主兼容性；创建 Agent、远程传输和 executor 互发消息不属于当前范围，除非任务明确要求扩展。受管理唤醒通过宿主公开接口适配；不支持的宿主必须明确为 manual。
 
 ## 按任务查阅
 
@@ -14,7 +14,7 @@ cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。�
 ## 实现约束
 
 - 对外 MCP 工具为 `join`、`list`、`send`、`report`、`ask`、`read`、`leave`。修改接口时保持 schema、daemon、桥接层和使用说明一致；Agent 标识是开放字符串，不限定为已知宿主枚举。
-- 消息读取即交付，不代表任务执行成功，也没有处理确认或 exactly-once 保证。保留 peek/history、优先级、关联回复，以及等待中的读取被取消后不消费消息的语义。
+- 消息读取即交付，不代表任务执行成功，任务通过 report + reply_to 独立记录接单和终态，没有 exactly-once 执行保证。连接离线、消息保留期和 unread=0 均不能释放未完成任务归属。保留 peek/history、优先级、关联回复，以及等待中的读取被取消后不消费消息的语义。
 - 身份重绑定和共享 MCP 进程中的会话隔离必须保留队列、成员关系及回复路由。具名 squad 的创建/加入保持原子性。
 - Hooks 只暴露消息元数据，不注入正文或附件；保留失败放行和 Stop 提醒节流行为。
 - 使用 TypeScript strict、ESM/NodeNext；本地 TypeScript 模块导入沿用 `.js` 后缀。格式以现有 Prettier 配置为准。

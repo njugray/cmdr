@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from './store.js';
@@ -5,6 +6,9 @@ import { titleFor } from './title.js';
 import { parse, type Tool } from '../shared/schemas.js';
 import {
   fail,
+  LIMITS,
+  terminalWork,
+  type LifecycleEvent,
   type Agent,
   type Message,
   type MessageType,
@@ -16,13 +20,28 @@ import { recommendedWait } from '../shared/env.js';
 import type { Config } from '../shared/config.js';
 import type { Paths } from '../shared/paths.js';
 
+// Leave room for envelope fields and UTF-8 escaping in a single RPC frame.
+function bounded<T>(values: T[], limit: number): T[] {
+  const result: T[] = [];
+  let bytes = 0;
+  for (const value of values) {
+    const size = Buffer.byteLength(JSON.stringify(value));
+    if (result.length >= limit || (result.length > 0 && bytes + size > LIMITS.maxFrame / 2)) break;
+    result.push(value);
+    bytes += size;
+  }
+  return result;
+}
 export interface Context {
   sid?: string;
   kind?: 'mcp' | 'hook' | 'cli';
   agent?: Agent;
+  transport?: 'cli' | 'mcp';
   waitHint?: number;
   closed?: boolean;
-  tail?: { squad?: string; full?: boolean };
+  version?: string;
+  client?: string;
+  tail?: { squad?: string; for?: string; full?: boolean; after: number };
   notify: (method: string, params: unknown) => void;
 }
 interface Waiter {
@@ -33,6 +52,7 @@ interface Waiter {
   timer: NodeJS.Timeout;
 }
 export class Core {
+  configureStandby?: (sid: string, mode: string) => unknown;
   contexts = new Set<Context>();
   private waiters = new Set<Waiter>();
   private effects: Message[] = [];
@@ -43,7 +63,7 @@ export class Core {
     public config: Config,
   ) {
     for (const s of store.sessions()) {
-      s.presence = 'offline';
+      s.presence = s.transport === 'cli' ? 'cli' : 'offline';
       store.saveSession(s);
     }
     this.refreshFlags();
@@ -55,22 +75,35 @@ export class Core {
     ctx.closed = true;
     this.contexts.delete(ctx);
     for (const w of this.waiters) if (w.ctx === ctx) w.finish();
-    if (ctx.sid && ![...this.contexts].some((c) => c.kind === 'mcp' && c.sid === ctx.sid)) {
+    if (
+      ctx.sid &&
+      ![...this.contexts].some(
+        (c) => c.kind === 'mcp' && c.transport !== 'cli' && c.sid === ctx.sid,
+      )
+    ) {
       const s = this.store.session(ctx.sid);
       if (s) {
-        s.presence = 'offline';
-        s.last_seen_at = Date.now();
-        this.store.saveSession(s);
+        s.presence = s.transport === 'cli' ? 'cli' : 'offline';
+        this.atomic(() => {
+          this.store.saveSession(s);
+          this.record('session.disconnected', s.squad_id, {
+            to_sid: s.sid,
+            data: { presence: s.presence },
+          });
+        });
       }
     }
   }
   close() {
+    for (const ctx of this.contexts) ctx.closed = true;
     for (const w of this.waiters) w.finish();
   }
   private me(ctx: Context) {
     return ctx.sid ? this.store.session(ctx.sid) : undefined;
   }
   private required(ctx: Context): Session {
+    if (ctx.sid && this.store.revoked(ctx.sid))
+      fail('ENDPOINT_REPLACED', 'This endpoint was replaced; use the new member session.');
     return this.me(ctx) || fail('NOT_JOINED', 'Register a session first.');
   }
   private member(ctx: Context, role?: string): Session {
@@ -98,11 +131,14 @@ export class Core {
             role: s.role,
             squad: s.squad_id,
             name: s.name,
+            member_id: s.member_id || s.sid,
+            wake_mode: this.store.standby(s.sid)?.wake_mode || 'manual',
+            listener: this.standbyView(s.sid),
             identity: s.native_id ? 'confirmed' : 'provisional',
             recommended_wait: this.waitHint(s),
           }
         : null,
-      unread: s ? this.store.queue(s.sid).length : 0,
+      unread: s ? this.inbox(s).length : 0,
     };
   }
   private board(q: Squad) {
@@ -112,18 +148,130 @@ export class Core {
       members: this.members(q.id).map((s) => this.view(s)),
     };
   }
-  private view(s: Session) {
-    const queue = this.store.queue(s.sid);
+  private standbyView(sid: string) {
+    const standby = this.store.standby(sid);
+    return standby
+      ? {
+          sid: standby.sid,
+          wake_mode: standby.wake_mode,
+          enabled: standby.enabled,
+          health: standby.health,
+          host_state: standby.host_state,
+          checked_at: standby.checked_at,
+          error: standby.error,
+          request: standby.request
+            ? {
+                id: standby.request.id,
+                state: standby.request.state,
+                created_at: standby.request.created_at,
+              }
+            : undefined,
+          can_auto_respond:
+            standby.enabled && standby.wake_mode !== 'manual' && standby.health === 'healthy',
+        }
+      : { wake_mode: 'manual', health: 'manual', can_auto_respond: false };
+  }
+  inbox(s: Session, history = false) {
+    return [
+      ...this.store.queue(s.sid, history),
+      ...(s.role === 'commander' && s.squad_id
+        ? this.store.queue(`squad:${s.squad_id}`, history)
+        : []),
+    ]
+      .filter((m) => history || !m.blocked_by || terminalWork(this.store.message(m.blocked_by)!))
+      .sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+  }
+  private view(s: Session, full = false, commandSquad?: string) {
+    const commands = this.store
+      .commands(s.sid)
+      .filter((m) => !commandSquad || m.squad_id === commandSquad)
+      .map((m) => ({
+        id: m.id,
+        task_key: m.task_key,
+        state: m.work?.state || (m.status === 'queued' ? 'queued' : 'read'),
+        created_at: m.created_at,
+        updated_at: m.work?.updated_at || m.created_at,
+        unacked_for: m.work?.accepted_at ? null : Math.floor((Date.now() - m.created_at) / 1000),
+        cancel_requested_at: m.work?.cancel_requested_at,
+        blocked_by: m.blocked_by,
+      }));
     return {
-      ...s,
+      ...(full
+        ? s
+        : {
+            sid: s.sid,
+            agent: s.agent,
+            name: s.name,
+            role: s.role,
+            cwd: s.cwd,
+            native_id: s.native_id,
+            presence: s.presence,
+            activity: s.activity,
+            last_status: s.last_status,
+          }),
+      member_id: s.member_id || s.sid,
       title: titleFor(s),
       short: s.sid.slice(0, s.sid.indexOf(':') + 9),
       squad: s.squad_id,
       last_seen: s.last_seen_at,
-      pending: queue.filter((m) => m.type === 'command').length,
+      activity_at: s.activity_at || null,
+      last_progress_at: s.last_progress_at || null,
+      hook_seen_at: s.hook_seen_at || null,
+      pending: commands.filter((m) => m.state === 'queued').length,
+      unacked: commands.filter((m) => !['accepted'].includes(m.state)).length,
+      in_progress: commands.filter((m) => m.state === 'accepted').length,
+      commands,
+      listener: this.standbyView(s.sid),
     };
   }
+  record(
+    kind: string,
+    channel: string | null,
+    detail: Omit<LifecycleEvent, 'event_seq' | 'at' | 'kind' | 'channel'> = {},
+  ) {
+    return this.store.appendEvent({ at: Date.now(), kind, channel, ...detail });
+  }
+  private messageEvent(kind: string, m: Message, reason?: string) {
+    this.record(kind, m.squad_id, {
+      from_sid: m.from_sid,
+      to_sid: m.to_sid,
+      message_id: m.id,
+      reply_to: m.reply_to,
+      message: m,
+      reason,
+    });
+  }
+  publishEvents(after: number) {
+    for (const event of this.store.events(after))
+      for (const c of this.contexts) {
+        const t = c.tail;
+        if (!t || event.event_seq <= t.after) continue;
+        t.after = event.event_seq;
+        if (t.squad && t.squad !== event.channel) continue;
+        if (
+          t.for &&
+          t.for !== event.to_sid &&
+          !(
+            event.to_sid === `squad:${event.channel}` &&
+            this.store.squad(event.channel!)?.commander_sid === t.for
+          )
+        )
+          continue;
+        c.notify(
+          'lifecycle.event',
+          t.full
+            ? event
+            : {
+                ...event,
+                message: event.message
+                  ? { ...event.message, body: event.message.body.slice(0, 160), data: null }
+                  : undefined,
+              },
+        );
+      }
+  }
   private atomic<T>(fn: () => T): T {
+    const cursor = this.store.eventCursor();
     this.effects = [];
     let result: T;
     try {
@@ -135,12 +283,15 @@ export class Core {
     const effects = this.effects;
     this.effects = [];
     for (const m of effects) {
-      this.flag(m.to_sid);
+      const recipient = m.to_sid.startsWith('squad:')
+        ? this.store.squad(m.squad_id!)?.commander_sid
+        : m.to_sid;
+      if (recipient) this.flag(recipient);
       for (const c of this.contexts) {
-        if (c.sid === m.to_sid)
+        if (c.sid === recipient)
           c.notify('msg.new', {
-            sid: m.to_sid,
-            count: this.store.queue(m.to_sid).length,
+            sid: recipient,
+            count: this.inbox(this.store.session(recipient!)!).length,
             top_priority: m.priority,
           });
         if (c.tail && (!c.tail.squad || c.tail.squad === m.squad_id))
@@ -150,11 +301,16 @@ export class Core {
           });
       }
     }
+    this.publishEvents(cursor);
     for (const w of [...this.waiters]) {
+      if (!this.store.session(w.sid)) {
+        w.finish();
+        continue;
+      }
       if (
-        this.store
-          .queue(w.sid)
-          .some((m) => !w.answer || (m.type === 'answer' && m.reply_to === w.answer))
+        this.inbox(this.store.session(w.sid)!).some(
+          (m) => !w.answer || (m.type === 'answer' && m.reply_to === w.answer),
+        )
       )
         w.finish();
     }
@@ -171,26 +327,21 @@ export class Core {
     rmSync(this.paths.flag(sid), { force: true });
   }
   private refreshFlags() {
-    const queued = new Set(
-      this.store
-        .messages()
-        .filter((m) => m.status === 'queued')
-        .map((m) => m.to_sid),
-    );
+    const queued = new Set<string>();
+    for (const s of this.store.sessions()) {
+      const queue = this.inbox(s);
+      if (!queue.length) continue;
+      queued.add(s.sid);
+      if (
+        queue.some((m) => m.seq > s.last_notified_seq) ||
+        (queue.some((m) => m.priority <= 0) &&
+          Date.now() - s.last_notified_at >= this.config.remindIntervalSec * 1000)
+      )
+        this.flag(s.sid);
+    }
     for (const f of readdirSync(this.paths.flags))
       if (!queued.has(Buffer.from(f, 'base64url').toString()))
         rmSync(join(this.paths.flags, f), { force: true });
-    for (const sid of queued) {
-      const s = this.store.session(sid),
-        queue = this.store.queue(sid);
-      if (
-        s &&
-        (queue.some((m) => m.seq > s.last_notified_seq) ||
-          (queue.some((m) => m.priority === 0) &&
-            Date.now() - s.last_notified_at >= this.config.remindIntervalSec * 1000))
-      )
-        this.flag(sid);
-    }
   }
   register(ctx: Context, p: any): Session {
     if (!['mcp', 'hook', 'cli'].includes(p.kind))
@@ -212,6 +363,7 @@ export class Core {
         (typeof p.native_id !== 'string' || !p.native_id || p.native_id.length > 256))
     )
       fail('INVALID_ARGUMENT');
+    if (this.store.revoked(sid)) fail('ENDPOINT_REPLACED');
     let s = this.store.session(sid);
     if (!s)
       s = {
@@ -227,7 +379,8 @@ export class Core {
         role: 'none',
         squad_id: null,
         presence: 'offline',
-        activity: 'busy',
+        activity: 'unknown',
+        member_id: `member:${randomUUID()}`,
         last_status: null,
         last_notified_seq: 0,
         last_notified_at: 0,
@@ -246,7 +399,13 @@ export class Core {
     if (p.kind === 'mcp') {
       if (ctx.sid && ctx.sid !== sid)
         fail('ROLE_NOT_ALLOWED', 'Use session.identify to bind identity');
-      s.presence = 'online';
+      ctx.transport = p.transport === 'cli' ? 'cli' : 'mcp';
+      s.transport = ctx.transport;
+      s.presence =
+        ctx.transport === 'mcp' ||
+        [...this.contexts].some((c) => c.sid === sid && c.kind === 'mcp' && c.transport !== 'cli')
+          ? 'online'
+          : 'cli';
       ctx.sid = sid;
       ctx.agent = agent;
       ctx.waitHint = Number.isFinite(p.wait_hint)
@@ -254,12 +413,17 @@ export class Core {
         : recommendedWait(agent, {});
     }
     this.store.saveSession(s);
+    this.record('session.registered', s.squad_id, {
+      to_sid: s.sid,
+      data: { presence: s.presence, transport: s.transport },
+    });
     return s;
   }
   private identify(ctx: Context, native: string, force = false) {
     if (typeof native !== 'string' || !native || native.length > 256) fail('INVALID_ARGUMENT');
     const old = this.required(ctx),
       sid = `${old.agent}:${native}`;
+    if (this.store.revoked(sid)) fail('ENDPOINT_REPLACED');
     if (old.sid === sid) return old;
     if (old.native_id && !force) return old;
     const target = this.store.session(sid);
@@ -268,6 +432,10 @@ export class Core {
     const merged: Session = {
       ...old,
       ...target,
+      member_id:
+        old.role !== 'none'
+          ? old.member_id || old.sid
+          : target?.member_id || old.member_id || old.sid,
       sid,
       native_id: native,
       presence: 'online',
@@ -320,9 +488,14 @@ export class Core {
       reply_to?: string;
       attn?: boolean;
       operator?: boolean;
+      terminalAck?: boolean;
     } = {},
   ) {
-    if (this.store.queue(to).length >= this.config.maxQueue)
+    if (
+      !opts.terminalAck &&
+      this.store.queue(to).filter((m) => (m.type === 'cancel') === (type === 'cancel')).length >=
+        (type === 'cancel' ? 100 : this.config.maxQueue)
+    )
       fail('QUEUE_FULL', `Queue for ${to} is full`);
     const m: Message = {
       id: messageId(),
@@ -331,7 +504,7 @@ export class Core {
       type,
       priority:
         opts.priority ??
-        (['command', 'ask', 'answer'].includes(type) ? 0 : type === 'report' ? 2 : 1),
+        (['command', 'cancel', 'ask', 'answer'].includes(type) ? 0 : type === 'report' ? 2 : 1),
       from_sid: from?.sid || (opts.operator ? 'operator' : 'system'),
       from_role: from?.role || (opts.operator ? 'operator' : 'system'),
       from_name: from?.name || null,
@@ -340,11 +513,13 @@ export class Core {
       data: opts.data || null,
       reply_to: opts.reply_to || null,
       status: 'queued',
-      attn: opts.attn ?? ['command', 'ask', 'answer'].includes(type),
+      attn: opts.attn ?? ['command', 'cancel', 'ask', 'answer'].includes(type),
       created_at: Date.now(),
       delivered_at: null,
     };
+    if (type === 'command') m.work = { state: 'queued', updated_at: m.created_at };
     this.store.insert(m);
+    this.messageEvent('message.queued', m);
     this.effects.push(m);
     return m;
   }
@@ -352,57 +527,128 @@ export class Core {
     for (const s of to)
       this.enqueue(null, q.id, s.sid, 'system', body, { priority: high ? 0 : 1, attn: high });
   }
+  private roleInbox(q: Squad, old: string) {
+    for (const m of this.store.messages())
+      if (
+        m.squad_id === q.id &&
+        m.to_sid === old &&
+        !['command', 'cancel', 'answer'].includes(m.type)
+      ) {
+        m.to_sid = `squad:${q.id}`;
+        this.store.saveMessage(m);
+      }
+  }
+  private rebind(ctx: Context, member: string) {
+    const target = this.required(ctx);
+    if (!target.native_id) fail('IDENTITY_REQUIRED');
+    const old =
+      this.store.sessions().find((s) => (s.member_id || s.sid) === member) ||
+      fail('MEMBER_NOT_FOUND');
+    if (old.sid === target.sid) return;
+    if (!old.squad_id) fail('NOT_JOINED', 'The member must belong to a channel before rebinding');
+    if (target.squad_id) fail('ALREADY_JOINED');
+    const merged = {
+      ...old,
+      sid: target.sid,
+      agent: target.agent,
+      native_id: target.native_id,
+      member_id: old.member_id || old.sid,
+      pid: target.pid,
+      cwd: target.cwd,
+      terminal: target.terminal,
+      transcript_path: target.transcript_path,
+      presence: target.presence,
+      transport: target.transport,
+      activity: 'unknown' as const,
+      last_seen_at: Date.now(),
+      ended_at: null,
+    };
+    this.store.saveSession(merged);
+    for (const q of this.store.squads())
+      if (q.commander_sid === old.sid) {
+        q.commander_sid = target.sid;
+        this.store.saveSquad(q);
+      }
+    for (const m of this.store.messages()) {
+      if (m.to_sid === old.sid) m.to_sid = target.sid;
+      if (m.from_sid === old.sid) m.from_sid = target.sid;
+      this.store.saveMessage(m);
+    }
+    this.store.migrateMembership(old.sid, target.sid);
+    this.store.revoke(old.sid, target.sid);
+    this.store.deleteSession(old.sid);
+    this.store.deleteStandby(old.sid);
+    for (const w of this.waiters) if (w.sid === old.sid) w.finish();
+    this.clearFlag(old.sid);
+    if (this.inbox(merged).length) this.flag(target.sid);
+    this.record('member.rebound', merged.squad_id, {
+      from_sid: old.sid,
+      to_sid: target.sid,
+      data: { member_id: merged.member_id, wake_mode: 'manual' },
+    });
+  }
   private joinSquad(ctx: Context, p: any) {
+    if (p.rebind && (p.role || p.squad || p.squad_name || p.takeover))
+      fail('INVALID_ARGUMENT', 'rebind cannot be combined with a role or channel change');
+    if (p.rebind) this.rebind(ctx, p.rebind);
     const s = this.required(ctx);
     let q: Squad | undefined,
       role = p.role;
     if (p.squad_name) {
-      if (p.role || p.squad)
-        fail('INVALID_ARGUMENT', 'squad_name is the atomic shortcut; omit role and squad');
+      if (p.squad) fail('INVALID_ARGUMENT', 'Use squad or squad_name, not both');
       q = this.store
         .squads()
         .find((q) => q.name_key === p.squad_name.toLowerCase() && q.status !== 'dissolved');
-      if (s.squad_id && s.squad_id === q?.id) return this.joinResult(ctx, q);
-      if (q?.status === 'orphaned')
-        fail(
-          'SQUAD_ORPHANED',
-          `Squad ${q.id} is orphaned. Choose join(role="commander", squad="${q.id}") to take over or role="executor" to join.`,
-        );
-      role = q ? 'executor' : 'commander';
-      if (!q) p.name = p.squad_name;
+      if (s.squad_id === q?.id && !role) return this.joinResult(ctx, q!);
+      role ||= 'executor';
     } else if (p.squad) q = this.store.squad(p.squad) || fail('SQUAD_NOT_FOUND');
+    else if (p.rebind && s.squad_id) return this.joinResult(ctx, this.store.squad(s.squad_id)!);
     if (!role) fail('INVALID_ARGUMENT', 'Provide role or squad_name');
+    if (q?.status === 'dissolved') fail('SQUAD_NOT_FOUND', 'Channel is closed');
     if (s.squad_id) {
       if (
         (q?.id === s.squad_id || (!q && !p.squad_name && role === 'commander')) &&
         s.role === role
       )
         return this.joinResult(ctx, this.store.squad(s.squad_id)!);
-      if (q?.id === s.squad_id && q.status === 'orphaned' && role === 'commander') {
-        this.store.leave(s.sid);
-      } else fail('ALREADY_JOINED');
+      if (q?.id === s.squad_id && role === 'commander') this.store.leave(s.sid);
+      else fail('ALREADY_JOINED');
     }
-    if (q?.status === 'dissolved') fail('SQUAD_NOT_FOUND', 'Squad is dissolved');
     if (!q) {
-      if (role !== 'commander') fail('SQUAD_NOT_FOUND');
-      const key = p.name?.toLowerCase() || null;
+      if (role !== 'commander' && !p.squad_name) fail('SQUAD_NOT_FOUND');
+      const name = p.squad_name || p.name || null,
+        key = name?.toLowerCase() || null;
       if (key && this.store.squads().some((x) => x.name_key === key && x.status !== 'dissolved'))
-        fail('SQUAD_NAME_EXISTS', 'Use squad_name to join by name or specify a squad ID.');
+        fail('SQUAD_NAME_EXISTS');
       let id: string;
       do {
         id = squadId();
       } while (this.store.squad(id));
       q = {
         id,
-        name: p.name || null,
+        name,
         name_key: key,
-        commander_sid: s.sid,
-        status: 'active',
+        commander_sid: role === 'commander' ? s.sid : null,
+        status: role === 'commander' ? 'active' : 'orphaned',
         created_at: Date.now(),
         updated_at: Date.now(),
       };
+      this.record('channel.created', q.id);
     } else if (role === 'commander') {
-      if (q.commander_sid && q.commander_sid !== s.sid) fail('SQUAD_HAS_COMMANDER');
+      if (q.commander_sid && q.commander_sid !== s.sid) {
+        if (!p.takeover)
+          fail(
+            'SQUAD_HAS_COMMANDER',
+            'Use takeover=true for an explicit handover; offline does not mean stopped.',
+          );
+        const old = this.store.session(q.commander_sid)!;
+        this.roleInbox(q, old.sid);
+        this.store.leave(old.sid);
+        old.role = 'executor';
+        this.store.saveSession(old);
+        this.store.join(old);
+        this.record('commander.handover', q.id, { from_sid: old.sid, to_sid: s.sid });
+      }
       q.commander_sid = s.sid;
       q.status = 'active';
       this.system(
@@ -410,29 +656,25 @@ export class Core {
         this.members(q.id).filter((member) => member.sid !== s.sid),
         'commander_joined',
       );
-      const inbox = this.store.queue(`squad:${q.id}`);
-      if (inbox.length + this.store.queue(s.sid).length > this.config.maxQueue) fail('QUEUE_FULL');
-      for (const m of inbox) {
-        m.to_sid = s.sid;
-        this.store.saveMessage(m);
-        this.effects.push(m);
-      }
+      this.record('commander.claimed', q.id, { to_sid: s.sid });
     }
     s.role = role;
     s.squad_id = q.id;
-    s.name = p.name || null;
+    s.name = p.name || s.name;
     q.updated_at = Date.now();
     this.store.saveSquad(q);
     this.store.saveSession(s);
     this.store.join(s);
+    this.record('member.joined', q.id, { to_sid: s.sid, data: { role, member_id: s.member_id } });
     if (role === 'executor' && q.commander_sid)
       this.enqueue(
         s,
         q.id,
-        q.commander_sid,
+        `squad:${q.id}`,
         'system',
         `member_joined${p.note ? `: ${p.note}` : ''}`,
       );
+    if (this.inbox(s).length) this.flag(s.sid);
     return this.joinResult(ctx, q);
   }
   private joinResult(ctx: Context, q: Squad) {
@@ -448,7 +690,8 @@ export class Core {
         s.role === 'commander'
           ? `Squad ${q.id}${q.name ? ` (${q.name})` : ''} is ready. Paste this into each other session:\n${join_prompt}`
           : `Joined squad ${q.id}${s.name ? ` as ${s.name}` : ''}; report ready and wait for commands.`,
-      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Then read(wait=${wait}); standby for at most 40 rounds. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
+      standby: this.standbyView(s.sid),
+      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Check list before reassignment: offline never means work stopped. Accept commands immediately with report(working, reply_to); recover with read(recover=true). Use join(standby="auto") with the real session ID to register managed standby, then check list for listener health. If me.listener.can_auto_respond, end the turn; otherwise use at most two read(wait=${wait}) calls and explain that manual continuation is required. Never write a private wake listener. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
     };
   }
   private leave(ctx: Context, p: any) {
@@ -456,6 +699,7 @@ export class Core {
       q = this.store.squad(s.squad_id!)!;
     if (p.dissolve && s.role !== 'commander') fail('ROLE_NOT_ALLOWED');
     if (s.role === 'commander') {
+      this.roleInbox(q, s.sid);
       this.system(
         q,
         this.members(q.id).filter((x) => x.sid !== s.sid),
@@ -470,12 +714,18 @@ export class Core {
           m.role = 'none';
           m.squad_id = null;
           this.store.saveSession(m);
+          const listener = this.store.standby(m.sid);
+          if (listener) {
+            listener.enabled = false;
+            listener.health = 'stopped';
+            this.store.saveStandby(listener);
+          }
         }
     } else if (q.commander_sid)
       this.enqueue(
         s,
         q.id,
-        q.commander_sid,
+        `squad:${q.id}`,
         'system',
         `member_left${p.message ? `: ${p.message}` : ''}`,
       );
@@ -485,6 +735,13 @@ export class Core {
     this.store.saveSession(s);
     q.updated_at = Date.now();
     this.store.saveSquad(q);
+    this.record(p.dissolve ? 'channel.closed' : 'member.left', q.id, { from_sid: s.sid });
+    const standby = this.store.standby(s.sid);
+    if (standby) {
+      standby.enabled = false;
+      standby.health = 'stopped';
+      this.store.saveStandby(standby);
+    }
     return { left: true, squad: q.id, status: q.status };
   }
   private rate(ctx: Context) {
@@ -503,7 +760,7 @@ export class Core {
         for (const s of all) if (s.sid !== sender) found.set(s.sid, s);
         continue;
       }
-      const exact = all.filter((s) => s.sid === token);
+      const exact = all.filter((s) => s.sid === token || s.member_id === token);
       const matches = exact.length
         ? exact
         : all.filter((s) => s.name === token || s.sid.startsWith(token));
@@ -536,40 +793,202 @@ export class Core {
           'Answers require reply_to for an ask from the recipient in this squad.',
         );
     }
+    if (p.type === 'cancel' && (!p.reply_to || p.reassign))
+      fail('INVALID_ARGUMENT', 'cancel requires reply_to=<command id>');
+    const previous = p.reassign ? this.store.message(p.reassign) : undefined;
+    if (
+      p.reassign &&
+      (p.type !== 'command' ||
+        !previous ||
+        previous.type !== 'command' ||
+        previous.squad_id !== qid ||
+        terminalWork(previous) ||
+        recipients.length !== 1)
+    )
+      fail('INVALID_ARGUMENT', 'reassign must reference one unfinished command in this channel');
+    if (previous?.work?.replacement_id) fail('ALREADY_REASSIGNED');
+    if (previous?.task_key && p.task_key && p.task_key !== previous.task_key)
+      fail('INVALID_ARGUMENT', 'Reassignment must preserve the original task_key');
+    const taskKey = previous?.task_key || p.task_key;
+    if (p.task_key && (p.type !== 'command' || recipients.length !== 1))
+      fail(
+        'INVALID_ARGUMENT',
+        'task_key identifies one command owner; do not broadcast the same ticket',
+      );
+    if (
+      taskKey &&
+      this.store
+        .commands()
+        .some((m) => m.squad_id === qid && m.task_key === taskKey && m.id !== previous?.id)
+    )
+      fail('TASK_OWNED', 'This task_key already has unfinished work. Use reassign=<command id>.');
+    const warnings = recipients.flatMap((s) => {
+      const active = this.store.commands(s.sid);
+      return active.length
+        ? [
+            {
+              code: 'UNFINISHED_WORK',
+              sid: s.sid,
+              command_ids: active.map((m) => m.id),
+              message: 'Verify ownership before dispatch. Offline does not mean stopped.',
+            },
+          ]
+        : [];
+    });
     this.rate(ctx);
-    const messages = recipients.map((s) =>
-      this.enqueue(from, qid, s.sid, p.type, p.message, {
+    const cancel = (command: Message, body: string) => {
+      command.work ||= {
+        state: command.status === 'queued' ? 'queued' : 'read',
+        updated_at: command.created_at,
+      };
+      command.work.cancel_requested_at = Date.now();
+      // Unread work cannot have been accepted under the protocol. Read work needs the owner's acknowledgement.
+      if (command.work.state === 'queued') {
+        command.work.state = 'cancelled';
+        command.status = 'delivered';
+        command.delivered_at = Date.now();
+      }
+      command.work.updated_at = Date.now();
+      this.store.saveMessage(command);
+      this.messageEvent(
+        command.work.state === 'cancelled' ? 'work.cancelled' : 'work.cancel_requested',
+        command,
+      );
+      return this.enqueue(from, qid, command.to_sid, 'cancel', body, {
+        priority: -1,
+        reply_to: command.id,
+        attn: true,
+        operator: ctx.kind === 'cli',
+      });
+    };
+    if (previous)
+      cancel(
+        previous,
+        `Cancel command ${previous.id} at the next safe checkpoint and report cancelled with reply_to. Reassignment waits for your terminal report.`,
+      );
+    const messages = recipients.map((s) => {
+      if (p.type === 'cancel') {
+        const command = this.store.message(p.reply_to);
+        if (
+          !command ||
+          command.type !== 'command' ||
+          command.to_sid !== s.sid ||
+          command.squad_id !== qid ||
+          terminalWork(command)
+        )
+          fail('INVALID_ARGUMENT', 'Cancel target must own an unfinished command');
+        return cancel(command, p.message);
+      }
+      const m = this.enqueue(from, qid, s.sid, p.type, p.message, {
         priority: p.priority ? { high: 0, normal: 1, low: 2 }[p.priority as 'high'] : undefined,
         reply_to: p.reply_to,
         data: p.data,
+        attn: p.attention,
         operator: ctx.kind === 'cli',
-      }),
-    );
+      });
+      if (p.type === 'command') {
+        m.task_key = taskKey;
+        if (previous && !terminalWork(previous)) m.blocked_by = previous.id;
+        this.store.saveMessage(m);
+        if (previous) {
+          previous.work!.replacement_id = m.id;
+          this.store.saveMessage(previous);
+          this.messageEvent(
+            'work.reassigned',
+            m,
+            `Replaces ${previous.id}; ${m.blocked_by ? 'waiting for original owner to stop' : 'original was unread'}`,
+          );
+        }
+      }
+      return m;
+    });
     return {
       ids: messages.map((m) => m.id),
+      queued_to: recipients.map((s) => s.sid),
       delivered_to: recipients.map((s) => s.sid),
+      delivery_hint: 'queued_to / delivered_to mean enqueued, not read or accepted',
+      warnings: p.type === 'command' ? warnings : [],
+      blocked_by: messages.find((m) => m.blocked_by)?.blocked_by,
       offline: recipients.filter((s) => s.presence === 'offline').map((s) => s.sid),
       idle: recipients.filter((s) => s.activity === 'idle').map((s) => s.sid),
     };
   }
   private reportOrAsk(ctx: Context, p: any, ask: boolean) {
-    const s = this.member(ctx, 'executor'),
-      q = this.store.squad(s.squad_id!)!;
+    const s = !ask && p.reply_to ? this.required(ctx) : this.member(ctx, 'executor');
+    let command = !ask && p.reply_to ? this.store.message(p.reply_to) : undefined;
+    let terminalAck = false;
+    const q = this.store.squad(command?.squad_id || s.squad_id!) || fail('NOT_JOINED');
+    if (!ask && p.reply_to) {
+      command = this.store.message(p.reply_to);
+      if (
+        !command ||
+        command.type !== 'command' ||
+        command.to_sid !== s.sid ||
+        command.squad_id !== q.id
+      )
+        fail('INVALID_ARGUMENT', 'reply_to must identify a command owned by this member');
+      if (command.blocked_by && !terminalWork(this.store.message(command.blocked_by)))
+        fail('REASSIGNMENT_PENDING', 'Original owner has not stopped');
+      const state = (
+        {
+          working: 'accepted',
+          blocked: 'accepted',
+          done: 'completed',
+          failed: 'failed',
+          cancelled: 'cancelled',
+        } as const
+      )[p.status as 'working'];
+      if (!state) fail('INVALID_ARGUMENT', 'ready is not a command acknowledgement');
+      if (terminalWork(command) && state !== command.work!.state) fail('WORK_TERMINAL');
+      if (!terminalWork(command)) {
+        const now = Date.now();
+        command.work ||= { state: 'read', updated_at: now };
+        if (command.work.cancel_requested_at && state === 'accepted')
+          fail('CANCEL_REQUESTED', 'Stop at a safe checkpoint and report cancelled');
+        const changed = command.work.state !== state;
+        command.work.state = state;
+        command.work.updated_at = now;
+        if (state === 'accepted') command.work.accepted_at ||= now;
+        command.status = 'delivered';
+        command.delivered_at ||= now;
+        this.store.saveMessage(command);
+        terminalAck = terminalWork(command);
+        this.messageEvent(changed ? `work.${state}` : 'work.progress', command);
+        if (terminalWork(command) && command.work.replacement_id) {
+          const replacement = this.store.message(command.work.replacement_id)!;
+          this.effects.push(replacement);
+          this.messageEvent('work.released', replacement);
+        }
+      }
+    }
     this.rate(ctx);
-    const to = q.commander_sid || `squad:${q.id}`;
+    const to = `squad:${q.id}`;
     const m = this.enqueue(s, q.id, to, ask ? 'ask' : 'report', ask ? p.question : p.message, {
       reply_to: p.reply_to,
       data: ask ? p.data : { ...p.data, status: p.status },
       priority: ask ? 0 : ['blocked', 'failed'].includes(p.status) ? 1 : 2,
-      attn: ask || ['done', 'failed', 'blocked'].includes(p.status),
+      attn: ask || ['done', 'failed', 'blocked', 'cancelled'].includes(p.status),
+      // Each issued command reserves admission for its first terminal report.
+      // Keep work and report atomic even under backpressure; repeats use the ordinary cap.
+      terminalAck,
     });
     if (!ask) {
       s.last_status = { status: p.status, message: p.message.slice(0, 300) };
+      s.last_progress_at = Date.now();
+      s.activity_at = Date.now();
+      s.activity = this.store.commands(s.sid).some((m) => m.work?.state === 'accepted')
+        ? 'busy'
+        : 'idle';
       this.store.saveSession(s);
     }
     return {
       id: m.id,
       delivered_to: to,
+      queued_to: to,
+      work: command?.work,
+      ...(!ask && !p.reply_to && this.store.commands(s.sid).length
+        ? { warning: 'Uncorrelated report does not accept or finish a command; provide reply_to.' }
+        : {}),
       commander_presence: q.commander_sid
         ? this.store.session(q.commander_sid)?.presence
         : 'orphaned',
@@ -578,26 +997,52 @@ export class Core {
   }
   private readNow(ctx: Context, p: any, answer?: string) {
     const s = this.required(ctx);
-    let queue = this.store.queue(s.sid, p.history);
+    let queue = p.recover
+      ? this.store
+          .commands(s.sid)
+          .filter((m) => !m.blocked_by || terminalWork(this.store.message(m.blocked_by)))
+      : this.inbox(s, p.history);
+    if (p.id) {
+      const m = this.store.message(p.id);
+      if (
+        !m ||
+        (m.to_sid !== s.sid && !(s.role === 'commander' && m.to_sid === `squad:${s.squad_id}`))
+      )
+        fail('MESSAGE_NOT_FOUND');
+      // Gate queued work; keep delivered history readable after its predecessor expires.
+      if (m.status === 'queued' && m.blocked_by && !terminalWork(this.store.message(m.blocked_by)))
+        fail('REASSIGNMENT_PENDING', 'Original owner has not stopped');
+      queue = [m];
+    }
     if (p.since) {
       const since = this.store.message(p.since);
-      if (!since || since.to_sid !== s.sid) fail('INVALID_ARGUMENT', 'Unknown since message');
+      if (
+        !since ||
+        (since.to_sid !== s.sid &&
+          !(s.role === 'commander' && since.to_sid === `squad:${s.squad_id}`))
+      )
+        fail('INVALID_ARGUMENT', 'Unknown since message');
       queue = queue.filter((m) => m.seq > since.seq);
     }
     if (answer) queue = queue.filter((m) => m.type === 'answer' && m.reply_to === answer);
-    const messages = queue.slice(0, p.limit || 20);
-    if (!p.peek && !p.history && !ctx.closed)
+    const messages = bounded(queue, p.limit || 20);
+    if (!p.peek && !p.history && !p.recover && !p.id && !ctx.closed)
       for (const m of messages) {
         m.status = 'delivered';
         m.delivered_at = Date.now();
+        if (m.type === 'command' && (!m.work || m.work.state === 'queued'))
+          m.work = { ...m.work, state: 'read', updated_at: Date.now() };
         this.store.saveMessage(m);
+        this.messageEvent('message.read', m);
       }
-    const remaining = this.store.queue(s.sid).length;
+    const remaining = this.inbox(s).length;
     if (!remaining) this.clearFlag(s.sid);
     return {
       messages: ctx.closed ? [] : messages,
       remaining,
-      squad_summary: s.squad_id ? this.board(this.store.squad(s.squad_id)!) : null,
+      ...(p.full
+        ? { squad_summary: s.squad_id ? this.board(this.store.squad(s.squad_id)!) : null }
+        : {}),
     };
   }
   private wait(
@@ -624,9 +1069,9 @@ export class Core {
       this.waiters.add(w);
       signal?.addEventListener('abort', w.finish, { once: true });
       if (
-        this.store
-          .queue(w.sid)
-          .some((m) => !answer || (m.type === 'answer' && m.reply_to === answer))
+        this.inbox(this.store.session(w.sid)!).some(
+          (m) => !answer || (m.type === 'answer' && m.reply_to === answer),
+        )
       )
         w.finish();
     });
@@ -639,16 +1084,18 @@ export class Core {
       sessions: this.store
         .sessions()
         .filter((s) =>
-          squad ? s.squad_id === squad : s.presence === 'online' || s.role !== 'none',
+          squad
+            ? s.squad_id === squad || this.store.commands(s.sid).some((m) => m.squad_id === squad)
+            : s.presence === 'online' || s.role !== 'none' || this.store.commands(s.sid).length > 0,
         )
         .map((s) => ({
-          ...this.view(s),
-          ...(s.sid === me?.sid ? { unread: this.store.queue(s.sid).length } : {}),
+          ...this.view(s, p.full, squad || undefined),
+          ...(s.sid === me?.sid ? { unread: this.inbox(s).length } : {}),
         })),
       squads: this.store
         .squads()
         .filter((q) => (squad ? q.id === squad : q.status !== 'dissolved'))
-        .map((q) => this.board(q)),
+        .map((q) => (p.full ? this.board(q) : q)),
     };
   }
   private hook(ctx: Context, p: any) {
@@ -659,6 +1106,7 @@ export class Core {
       return {};
     const agent: Agent = /^[a-z][a-z0-9_-]{0,63}$/.test(p.agent || '') ? p.agent : 'generic',
       sid = `${agent}:${p.session_id}`;
+    if (this.store.revoked(sid)) return {};
     let s = this.store.session(sid);
     if (p.event === 'SessionEnd' && !s) return {};
     if (p.event === 'SessionStart') {
@@ -686,6 +1134,16 @@ export class Core {
     if (!s) return {};
     const now = Date.now();
     s.last_seen_at = now;
+    s.hook_seen_at = now;
+    s.activity_at = now;
+    this.record('session.activity', s.squad_id, {
+      to_sid: s.sid,
+      reason: p.event,
+      data: {
+        activity: p.event === 'Stop' ? 'idle' : p.event === 'SessionEnd' ? s.activity : 'busy',
+        presence: p.event === 'SessionEnd' ? 'offline' : s.presence,
+      },
+    });
     if (p.event === 'SessionEnd') {
       s.presence = 'offline';
       s.ended_at = now;
@@ -693,12 +1151,12 @@ export class Core {
       return {};
     }
     s.activity = p.event === 'Stop' ? 'idle' : 'busy';
-    const queue = this.store.queue(sid),
+    const queue = this.inbox(s),
       max = Math.max(0, ...queue.map((m) => m.seq));
     const groups = new Map<string, number>();
     for (const m of queue) {
       const sender = (m.from_name || m.from_role).replace(/[\r\n\t]/g, ' ').slice(0, 30);
-      const label = `${m.type} (${['high', 'normal', 'low'][m.priority]}) from ${sender}`;
+      const label = `${m.type} (${m.priority < 0 ? 'urgent' : ['high', 'normal', 'low'][m.priority]}) from ${sender}`;
       groups.set(label, (groups.get(label) || 0) + 1);
     }
     const details = [...groups]
@@ -724,7 +1182,7 @@ export class Core {
     } else if (
       queue.length &&
       (max > s.last_notified_seq ||
-        (queue.some((m) => m.priority === 0) &&
+        (queue.some((m) => m.priority <= 0) &&
           now - s.last_notified_at >= this.config.remindIntervalSec * 1000))
     )
       result.inject = summary.slice(0, 300);
@@ -740,8 +1198,16 @@ export class Core {
     this.atomic(() => {
       const cutoff = Date.now() - this.config.ttlDays * 86400000;
       this.store.expireMessages(all ? Number.MAX_SAFE_INTEGER : cutoff);
+      this.store.expireEvents(all ? Number.MAX_SAFE_INTEGER : cutoff);
+      if (all) this.store.purge();
       for (const s of this.store.sessions())
-        if (all || (s.presence === 'offline' && s.last_seen_at < cutoff)) {
+        if (
+          all ||
+          (!s.squad_id &&
+            s.presence !== 'online' &&
+            s.last_seen_at < cutoff &&
+            !this.store.commands(s.sid).length)
+        ) {
           if (s.squad_id && s.role === 'commander') {
             const q = this.store.squad(s.squad_id)!;
             q.commander_sid = null;
@@ -762,7 +1228,13 @@ export class Core {
           this.store.deleteSession(s.sid);
         }
       for (const q of this.store.squads())
-        if (all || (q.status !== 'active' && q.updated_at < cutoff && !this.members(q.id).length))
+        if (
+          all ||
+          (q.status === 'dissolved' &&
+            q.updated_at < cutoff &&
+            !this.members(q.id).length &&
+            !this.store.commands().some((m) => m.squad_id === q.id))
+        )
           this.store.deleteSquad(q.id);
     });
     if (all)
@@ -805,27 +1277,69 @@ export class Core {
             })),
           squads: this.store.squads().length,
           connections: [...this.contexts].filter((c) => c.kind === 'mcp').length,
+          clients: [...this.contexts].map((c) => ({
+            sid: c.sid,
+            kind: c.kind,
+            version: c.version,
+            client: c.client,
+          })),
+          listeners: this.store.standbys().map((s) => this.standbyView(s.sid)),
         };
       if (method === 'admin.housekeep' || method === 'admin.purge')
         return this.housekeep(method === 'admin.purge' && params.all === true);
-      if (method === 'admin.peek') return { messages: this.store.queue(params.sid) };
+      if (method === 'admin.peek')
+        return { messages: this.inbox(this.store.session(params.sid) || fail('NOT_JOINED')) };
       if (method === 'admin.read') {
         const s = this.store.session(params.sid) || fail('NOT_JOINED');
         return this.atomic(() =>
           this.readNow({ ...ctx, sid: s.sid }, parse('read', params.options || {})),
         );
       }
-      if (method === 'admin.tail') {
-        ctx.tail = { squad: params.squad, full: params.full };
-        return { subscribed: true };
+      if (method === 'admin.tail' || method === 'admin.events') {
+        const after =
+          params.after === undefined ? Math.max(0, this.store.eventCursor() - 20) : params.after;
+        if (!Number.isSafeInteger(after) || after < 0)
+          fail('INVALID_ARGUMENT', 'after must be a nonnegative event_seq');
+        const high = this.store.eventCursor();
+        if (after > high)
+          fail(
+            'CURSOR_AHEAD',
+            'Cursor is ahead of this database; verify CMDR_HOME or restart from --after 0',
+          );
+        const recipient = params.for ? this.store.session(params.for) : undefined;
+        const candidates = this.store.eventPage(after, {
+          squad: params.squad,
+          to: params.for,
+          roleInbox: recipient?.role === 'commander' ? `squad:${recipient.squad_id}` : undefined,
+        });
+        const events = bounded(
+          params.full
+            ? candidates
+            : candidates.map((e) => ({
+                ...e,
+                message: e.message
+                  ? { ...e.message, body: e.message.body.slice(0, 160), data: null }
+                  : undefined,
+              })),
+          100,
+        );
+        const next = events.length < candidates.length ? events[events.length - 1].event_seq : high;
+        if (method === 'admin.tail')
+          ctx.tail = { squad: params.squad, for: params.for, full: params.full, after: high };
+        return {
+          events,
+          next,
+          high,
+          gap: after < this.store.eventFloor(),
+          retained_after: this.store.eventFloor(),
+        };
       }
       if (method === 'admin.recent')
         return {
           messages: this.store
             .messages()
             .filter((m) => !params.squad || m.squad_id === params.squad)
-            .slice(-Math.min(100, Math.max(1, params.limit || 20)))
-            .map((m) => (params.full ? m : { ...m, body: m.body.slice(0, 160), data: null })),
+            .slice(-20),
         };
       fail('INVALID_ARGUMENT', `Unknown method ${method}`);
     }
@@ -847,13 +1361,12 @@ export class Core {
     if (method === 'msg.history') p.history = true;
     if (ctx.sid) {
       const s = this.required(ctx);
-      s.activity = 'busy';
       s.last_seen_at = Date.now();
       this.store.saveSession(s);
     }
     if (tool === 'read') {
       this.required(ctx);
-      if (!p.history && !p.since && !this.store.queue(ctx.sid!).length)
+      if (!p.history && !p.since && !p.recover && !p.id && !this.inbox(this.required(ctx)).length)
         await this.wait(ctx, p.wait, undefined, signal);
       if (signal?.aborted) fail('REQUEST_CANCELLED');
       if (ctx.closed) fail('DAEMON_UNAVAILABLE');
@@ -886,6 +1399,20 @@ export class Core {
           return this.reportOrAsk(ctx, p, false);
       }
     });
+    if (tool === 'join' && p.standby && this.configureStandby) {
+      return this.envelope(ctx, {
+        ...result,
+        standby: this.required(ctx).native_id
+          ? this.configureStandby(ctx.sid!, p.standby)
+          : {
+              wake_mode: 'manual',
+              health: 'manual',
+              can_auto_respond: false,
+              reason:
+                'A confirmed native session ID is required for managed standby; membership is retained.',
+            },
+      });
+    }
     return this.envelope(ctx, result);
   }
 }

@@ -30,6 +30,16 @@ export async function runSession(argv: string[]) {
         to: { type: 'string' },
         type: { type: 'string' },
         'reply-to': { type: 'string' },
+        priority: { type: 'string' },
+        'task-key': { type: 'string' },
+        reassign: { type: 'string' },
+        rebind: { type: 'string' },
+        takeover: { type: 'boolean' },
+        standby: { type: 'string' },
+        full: { type: 'boolean' },
+        recover: { type: 'boolean' },
+        id: { type: 'string' },
+        limit: { type: 'string' },
         peek: { type: 'boolean' },
         history: { type: 'boolean' },
         dissolve: { type: 'boolean' },
@@ -39,7 +49,7 @@ export async function runSession(argv: string[]) {
     });
     if (v.help) {
       console.log(
-        'cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; commands do not wake agents.',
+        'cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual.',
       );
       return;
     }
@@ -73,12 +83,22 @@ export async function runSession(argv: string[]) {
       to: 'to',
       type: 'type',
       'reply-to': 'reply_to',
+      priority: 'priority',
+      'task-key': 'task_key',
+      reassign: 'reassign',
+      rebind: 'rebind',
+      takeover: 'takeover',
+      standby: 'standby',
+      full: 'full',
+      recover: 'recover',
+      id: 'id',
       peek: 'peek',
       history: 'history',
       dissolve: 'dissolve',
     } as const;
     for (const [flag, field] of Object.entries(mapping))
       if (v[flag as keyof typeof v] !== undefined) input[field] = v[flag as keyof typeof v];
+    if (v.limit !== undefined) input.limit = Number(v.limit);
     if (v.all) input.scope = 'all';
     if (v.wait !== undefined) input.wait = Number(v.wait);
     if (args.length > 1) input[action === 'ask' ? 'question' : 'message'] = args.slice(1).join(' ');
@@ -88,6 +108,7 @@ export async function runSession(argv: string[]) {
       throw new Error('--timeout must be >0 and <=3600 seconds');
     client = new DaemonClient({
       kind: 'mcp',
+      transport: 'cli',
       agent,
       native_id: native,
       cwd: process.cwd(),

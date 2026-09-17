@@ -4,7 +4,7 @@
     {
       "name": "cmdr",
       "source": "./plugins/cmdr",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "description": "Local multi-agent squads with durable messages, roles and lifecycle reminders."
     }
   ],

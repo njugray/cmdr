@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { mkdtempSync, rmSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -11,6 +11,7 @@ import { connect } from 'node:net';
 import { quickCall } from '../src/shared/client.js';
 import { paths } from '../src/shared/paths.js';
 import { Rpc } from '../src/shared/rpc.js';
+import { PROTOCOL, VERSION } from '../src/shared/version.js';
 const run = promisify(execFile),
   clients: Client[] = [];
 let home: string;
@@ -62,7 +63,7 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
     'report',
     'send',
   ]);
-  const q = await tool(c, 'join', { squad_name: 'Processes' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Processes' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id, name: 'tests' });
   await tool(e, 'report', { status: 'ready', message: 'ready' });
   await tool(c, 'read');
@@ -86,7 +87,11 @@ it('bundled MCP processes start one daemon, exchange messages, reconnect and ret
 it('isolates two ZCode sessions sharing a single MCP process', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-multiplex-'));
   const shared = await host('zcode');
-  const a = await tool(shared, 'join', { squad_name: 'Shared', _cmdr_session: 'a' });
+  const a = await tool(shared, 'join', {
+    role: 'commander',
+    squad_name: 'Shared',
+    _cmdr_session: 'a',
+  });
   const b = await tool(shared, 'join', { squad_name: 'Shared', _cmdr_session: 'b' });
   expect(a.me.sid).toBe('zcode:a');
   expect(b.me.sid).toBe('zcode:b');
@@ -128,7 +133,7 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
   expect(await invoke('Stop', { session_id: 's' })).toBe('');
   expect(existsSync(paths(home).socket)).toBe(false);
   const c = await host('zcode', 's');
-  await tool(c, 'join', { squad_name: 'x' });
+  await tool(c, 'join', { role: 'commander', squad_name: 'x' });
   // Hooks intentionally fail open after a short deadline; a loaded runner may time out.
   await expect
     .poll(
@@ -144,7 +149,7 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
     )
     .toContain('commander');
 }, 10000);
-it('requires hello before RPC operations and rejects incompatible protocol versions', async () => {
+it('requires hello and rejects incompatible protocols and stale cached client semantics', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-rpc-'));
   await run(cli, ['daemon', 'start'], { env: env() });
   const socket = connect(paths(home).socket);
@@ -157,6 +162,25 @@ it('requires hello before RPC operations and rejects incompatible protocol versi
     await expect(rpc.request('hello', { protocol: 999, version: '99.0.0' })).rejects.toMatchObject({
       code: 'PROTOCOL_MISMATCH',
     });
+    for (const version of ['0.1.0', '0.1.2', '0.1.99', '', 'unknown', undefined]) {
+      await expect(rpc.request('hello', { protocol: PROTOCOL, version })).rejects.toMatchObject({
+        code: 'PROTOCOL_MISMATCH',
+        message: expect.stringContaining('plugin cache'),
+      });
+      await expect(
+        rpc.request('session.register', { kind: 'mcp', agent: 'generic' }),
+      ).rejects.toMatchObject({ code: 'PROTOCOL_MISMATCH' });
+    }
+    await expect(
+      rpc.request('hello', { protocol: PROTOCOL, version: VERSION }),
+    ).resolves.toMatchObject({
+      protocol: PROTOCOL,
+      version: VERSION,
+    });
+    await rpc.request('session.register', { kind: 'mcp', agent: 'generic', native_id: 'current' });
+    expect((await rpc.request('session.join', { squad_name: 'Compatible' })).me.role).toBe(
+      'executor',
+    );
   } finally {
     rpc.close();
   }
@@ -165,7 +189,7 @@ it('propagates MCP cancellation without consuming a later message', async () => 
   home = mkdtempSync(join(tmpdir(), 'cmdr-cancel-'));
   const c = await host('generic', 'c'),
     e = await host('zcode', 'e');
-  const q = await tool(c, 'join', { squad_name: 'Cancel' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Cancel' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id });
   const controller = new AbortController();
   const waiting = e.callTool({ name: 'read', arguments: { wait: 5 } }, undefined, {
@@ -181,11 +205,28 @@ it('propagates MCP cancellation without consuming a later message', async () => 
   await tool(c, 'send', { to: 'all', message: 'after cancellation' });
   expect((await tool(e, 'read')).messages[0].body).toBe('after cancellation');
 }, 10000);
+it('waits for the prior daemon lock before spending its single startup attempt', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-lock-handover-'));
+  const p = paths(home);
+  // Model shutdown after the socket disappears but before the live owner releases its lock.
+  writeFileSync(p.lock, String(process.pid));
+  const starting = run(cli, ['daemon', 'start'], { env: env() });
+  const result = expect(starting).resolves.toHaveProperty('stdout');
+  try {
+    await expect.poll(() => existsSync(p.spawn)).toBe(true);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(readFileSync(p.lock, 'utf8')).toBe(String(process.pid));
+  } finally {
+    rmSync(p.lock, { force: true });
+  }
+  await result;
+  expect((await quickCall('admin.status', {}, { home })).version).toBe(VERSION);
+}, 10000);
 it('recovers a daemon killed without shutdown and preserves queued messages', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-crash-'));
   const c = await host('generic', 'c'),
     e = await host('generic', 'e');
-  const q = await tool(c, 'join', { squad_name: 'Crash' });
+  const q = await tool(c, 'join', { role: 'commander', squad_name: 'Crash' });
   await tool(e, 'join', { role: 'executor', squad: q.squad.id });
   await tool(c, 'send', { to: 'all', message: 'durable' });
   const pid = JSON.parse(readFileSync(paths(home).info, 'utf8')).pid;
@@ -207,7 +248,7 @@ it('recovers a daemon killed without shutdown and preserves queued messages', as
   expect(JSON.parse(readFileSync(paths(home).info, 'utf8')).pid).not.toBe(pid);
 }, 12000);
 
-it('upgrades an older daemon while retaining memberships and queued work', async () => {
+it('requires a validated explicit restart to upgrade without disrupting queued work', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-upgrade-'));
   const oldPath = join(home, 'old-daemon.mjs');
   await build({
@@ -230,16 +271,19 @@ it('upgrades an older daemon while retaining memberships and queued work', async
       await new Promise<void>((r) => socket.once('connect', r));
       const rpc = new Rpc(socket);
       peers.push(rpc);
-      await rpc.request('hello', { version: '0.0.9', protocol: 1 });
+      await rpc.request('hello', { version: VERSION, protocol: PROTOCOL });
       await rpc.request('session.register', { kind: 'mcp', agent: 'generic', native_id: id });
       return rpc;
     }
     const c = await register('c'),
       e = await register('e');
-    const q = await c.request('session.join', { squad_name: 'Upgrade' });
+    const q = await c.request('session.join', { role: 'commander', squad_name: 'Upgrade' });
     await e.request('session.join', { role: 'executor', squad: q.squad.id });
     await c.request('msg.send', { to: 'all', message: 'before upgrade' });
     const upgraded = await host('generic', 'e');
+    await expect(tool(upgraded, 'read')).rejects.toThrow('UPGRADE_REQUIRED');
+    expect(JSON.parse(readFileSync(paths(home).info, 'utf8')).pid).toBe(old.pid);
+    await run(cli, ['daemon', 'restart'], { env: env() });
     expect((await tool(upgraded, 'read')).messages[0].body).toBe('before upgrade');
     const info = JSON.parse(readFileSync(paths(home).info, 'utf8'));
     expect(info.version).toBe(JSON.parse(readFileSync('package.json', 'utf8')).version);

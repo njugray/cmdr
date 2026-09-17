@@ -26,7 +26,7 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.1.2.tgz
+npm install --global ./cmdr-mcp-0.2.0.tgz
 cmdr --help
 ```
 
@@ -70,18 +70,18 @@ In each participating session, enter:
 /cmdr my-project
 ```
 
-The first session becomes commander; subsequent sessions join the same squad as executors. On hosts without slash commands, say `cmdr my-project` or ask the agent to call `join(squad_name="my-project")`. Creation and lookup run in one transaction. Orphaned squads require an explicit takeover or executor join.
+Joining by name atomically creates or finds a persistent channel and defaults to executor, including the first member. Explicitly ask one session to command it: `join(role="commander", squad_name="my-project", standby="auto")`. Channels remain joinable without a commander; their ID survives ordinary departures and daemon restarts. This is a behavior change from 0.1.x.
 
 ## Workflow
 
 1. Executors join and `report(status="ready")` with their cwd, capabilities and context.
 2. The commander inspects `list`, then `send`s clear tasks with acceptance criteria.
-3. Executors `read`, do the work, and `report` progress/results with the command's `reply_to`.
+3. Executors `read`, immediately acknowledge with `report(status="working", reply_to=<command id>)`, do the work, then report done/failed/cancelled with the same `reply_to`.
 4. Executors use `ask` when blocked; the commander responds with `send(type="answer", reply_to=<ask id>)`.
-5. Both sides wait using `read(wait=me.recommended_wait)`. The included skills bound standby to 40 rounds.
+5. Use `join(..., standby="auto")`, then inspect `list` for listener health. With `can_auto_respond=true`, end the idle turn. Unsupported hosts remain manual; the skills bound fallback polling to two waits and explain manual continuation.
 6. `leave` preserves queued messages. Commander departure orphans the squad; `leave(dissolve=true)` disbands it.
 
-cmdr connects sessions already running. It does not create agents or actively wake an idle host. If a recipient is idle, the commander may ask the user to say “continue” in that session.
+cmdr connects existing sessions and never creates agents. The opt-in Codex adapter uses the shared app-server public transport for managed wakeup. Claude, ZCode and other hosts currently report `wake_mode=manual`. See [Long-running collaboration](docs/long-running-collaboration.md) for capabilities, recovery, handover and compatibility requirements.
 
 ## Tools
 
@@ -90,20 +90,20 @@ Exactly seven MCP tools are exposed, independently of the host:
 | Tool | Purpose |
 | --- | --- |
 | `join` | Atomic join/create by `squad_name`, or explicit `role` and squad ID |
-| `list` | Squad members, cwd, presence, activity and pending commands |
-| `send` | Commander commands, answers and information; operator equivalent in CLI |
-| `report` | Executor ready, working, blocked, done or failed reports |
+| `list` | Task ownership, unacknowledged age, progress, connection state and listener health |
+| `send` | Commands, cancel, answers and info; task_key deduplication and gated reassign |
+| `report` | Executor ready, working, blocked, done, failed or cancelled reports |
 | `ask` | Executor questions, optionally waiting for a correlated answer |
-| `read` | Priority-ordered dequeue, peek, history or long polling |
+| `read` | Priority dequeue, peek/history, recover, ID lookup and long polling |
 | `leave` | Leave, orphan or dissolve a squad |
 
-Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. There is no processing acknowledgement: if a host crashes after delivery, use history to recover the work.
+Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. Delivery is distinct from acceptance and completion. `read(recover=true)` non-destructively lists all unfinished commands, including already-read work. `pending=0`, `unread=0` and `offline` never release task ownership. `read`/`list` are compact by default; use `full=true` for expanded metadata. ID lookups also enforce the reassignment gate before exposing queued replacement work. Listings never include command bodies; use `read(id=...)` for your own inbox or operator `tail --full` for observation. No exactly-once execution guarantee is made.
 
 ## Installation diagnostics and member CLI
 
 If cmdr tools are absent, inspect the host's actual plugin cache with `cmdr doctor --plugin-root /path/to/cached/plugin`. Add `--deep` to check MCP and daemon access in a temporary state directory. The checker works even when the inspected CLI bundle is missing. Refresh/reinstall damaged caches from the complete npm package and start a new session.
 
-`cmdr session join|list|send|report|ask|read|leave` provides member operations when MCP tools are unavailable. Supply `--agent` and `--native-id` (or `CMDR_AGENT`/`CMDR_SESSION_ID`); use the same native ID as the host. These commands retain membership and messages after exit, but are online only during the connection.
+`cmdr session join|list|send|report|ask|read|leave` provides member operations when MCP tools are unavailable. Supply `--agent` and `--native-id` (or `CMDR_AGENT`/`CMDR_SESSION_ID`); use the same native ID as the host. These commands retain membership and messages after exit, and display connection presence as `cli`; execution state is reported separately.
 
 ```sh
 cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
@@ -117,7 +117,8 @@ See [Troubleshooting and CLI examples](docs/troubleshooting.md) for role-specifi
 ```sh
 plugins/cmdr/bin/cmdr status
 plugins/cmdr/bin/cmdr list --all
-plugins/cmdr/bin/cmdr tail --follow
+plugins/cmdr/bin/cmdr tail --follow --json --full --after 0
+plugins/cmdr/bin/cmdr standby status --session <sid>
 plugins/cmdr/bin/cmdr send --squad <id> --to tests "Run the test suite"
 plugins/cmdr/bin/cmdr read --session <sid> --peek
 plugins/cmdr/bin/cmdr daemon start
@@ -141,7 +142,7 @@ State is under `~/.cmdr/`; `CMDR_HOME` overrides it. The directory is 0700 and t
 }
 ```
 
-The daemon keeps queues, role membership, global message order and history in SQLite (WAL). Hooks expose only message metadata, never message bodies; Stop blocks only on actionable unread messages and is throttled. Queue caps and rate limits provide backpressure. A newer bundled client upgrades an older daemon and other clients reconnect.
+The daemon keeps queues, role membership, global message order and history in SQLite (WAL). Hooks expose only message metadata, never message bodies; Stop blocks only on actionable unread messages and is throttled. Queue caps and rate limits provide backpressure. Each command reserves admission for its first correlated terminal report, so a full role inbox cannot roll back completion; ordinary and repeated reports remain capped. Automatic daemon replacement is disabled. `cmdr daemon restart` validates this bundle against a consistent database copy before stopping the old daemon. `doctor` lists connected client versions and listener health. The 0.2 daemon rejects cached 0.1.x clients at handshake; refresh/reinstall the plugin cache and reconnect the host.
 
 ## Why MCP instead of terminal orchestration?
 

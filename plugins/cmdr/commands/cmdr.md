@@ -1,9 +1,7 @@
 ---
-description: Create or join a named local agent squad.
+description: Create or join a persistent local agent channel.
 argument-hint: <name>
 ---
-Call the cmdr join tool with squad_name="$ARGUMENTS". This is an atomic find-or-create operation; do not list then create. If no name was provided, ask for one. Do not invent a name.
-If the squad is orphaned, ask whether to take over as commander or join as executor and then use explicit role and squad ID.
-Follow the returned protocol_hint. An executor reports ready with cwd, capabilities and context before replying. Translate user_reply into the user's language, keep the join line unchanged, and reply with only that text. Then use read(wait=me.recommended_wait) to participate.
-
-If cmdr tools are unavailable, follow the using-cmdr installation diagnostics and member CLI fallback. Do not invent native session IDs or access raw sockets.
+Call join(squad_name="$ARGUMENTS", standby="auto") for atomic find-or-create. If no name was provided, ask for one; do not invent it. Joining defaults to executor, including a channel without a commander. Add role="commander" if the user explicitly requested command; use takeover=true only for requested handover.
+Follow protocol_hint and the role skill. Executors report ready with cwd and capabilities. Give a brief translated user_reply preserving the join line. Check listener health: end the idle turn when can_auto_respond=true; otherwise use at most two recommended waits and explain manual continuation. Do not create a private wake script.
+If tools are unavailable, follow using-cmdr diagnostics and member CLI fallback. Use the real host session ID, never an invented identity or raw socket workaround.

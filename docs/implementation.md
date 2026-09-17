@@ -1,10 +1,10 @@
 # Implementation and verification
 
-This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.1.1**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.2.0**, internal protocol **1**.
 
 ## Delivered behavior
 
-- A single on-demand daemon, Unix socket, SQLite WAL persistence, exclusive process lock, spawn coordination, idle exit, retention cleanup, log rotation and version-based replacement.
+- A single on-demand daemon, Unix socket, SQLite WAL persistence, exclusive process lock, spawn coordination, idle exit, retention cleanup, log rotation and preflight-validated explicit replacement.
 - Seven MCP stdio tools with input limits, role enforcement, atomic named squads, priorities, queue backpressure, sender rate limits, correlated asks/answers, peek/history and cancellable long polling.
 - Orphan/takeover/dissolve semantics, stable native identities, provisional identity migration, resume/reconnect, per-stamped-session MCP connections, Claude clear rebinding, cwd filtering and derived titles.
 - Lifecycle hooks with a flag-file fast path, metadata-only reminders, repeat throttling, actionable Stop interception, compact/resume context and fail-open behavior.
@@ -18,7 +18,7 @@ Generated `dist` files and license notices are excluded from Git, including this
 
 Tool schemas live in `shared/schemas.ts` separately from protocol/error types, so the hook does not pull in Zod just to handle RPC errors. The member CLI now deliberately shares the tool schemas and includes their validator.
 
-`join(squad_name)` is the atomic shortcut. `role` becomes optional only for this form; explicit `join(role, squad, name)` is retained. A single daemon transaction and partial unique index enforce live-name uniqueness. An executor can explicitly take over its own orphaned squad without a temporary departure.
+`join(squad_name)` is an atomic channel join, defaulting to executor. Explicit role=commander claims command; takeover=true permits handover. A single daemon transaction and partial unique index enforce live-name uniqueness. Channels persist without commanders. The stable role inbox and explicit member rebind preserve work across host-session changes. See [long-running collaboration](long-running-collaboration.md).
 
 The internal `Session.agent` is an open identifier. The bridge allocates one daemon connection per stamped session when a desktop host pools one MCP process. Unstamped hosts must use one process per session or explicitly inject unique native IDs. This replaces the prototype's “ignore a different stamp” limitation.
 
@@ -26,7 +26,7 @@ SQLite stores typed JSON payloads plus indexed columns for queues, message seque
 
 Reports include their status in `message.data.status`. Executor join replies instruct reporting ready instead of claiming that a report has already been sent. Metadata hooks do not include report bodies or user attachments.
 
-Cancellation is propagated from MCP through the Unix socket (`rpc.cancel`). Disconnect/cancellation before a waiting read resumes preserves the queued message. The documented “read is delivery” rule still applies: there is no processing acknowledgement or exactly-once guarantee after a result has been returned. History remains available for recovery.
+Cancellation is propagated from MCP through the Unix socket (`rpc.cancel`). Disconnect/cancellation before a waiting read resumes preserves the queued message. The documented “read is delivery” rule still applies: processing state is separate and uses correlated working/done/failed/cancelled reports. There is no exactly-once execution guarantee. History, ID lookup and recovery reads remain available; unfinished commands survive message retention.
 
 `doctor` reports host/runtime availability, bundles, daemon, Codex MCP registration and hook enablement indicators. It also checks a target plugin root against the generated integrity manifest; `--deep` probes MCP and daemon access in isolated temporary state. Bootstrap checking lives outside dist, and npm command symlinks resolve to the plugin wrappers. Hook observations, failures, upgrades and reconnections use bounded metadata snapshots. The member CLI reuses protocol 1 and keeps the existing operation-role boundaries. It does not guess Codex's private trust-file schema or invent a trusted-hook count: the output asks the user to verify the five hook approvals in the host UI.
 
@@ -52,7 +52,7 @@ claude plugin validate .
 npm run verify:zcode
 ```
 
-The original 0.1.0 validation also used the Codex plugin manifest validator and Node 22.5.0. For this 0.1.1 iteration, local validation uses macOS and Node 24.16.0; CI covers Linux/macOS and Node 22/24. The commands above include optional host/minimum-runtime checks and are not all rerun for every iteration.
+The original 0.1.0 validation also used the Codex plugin manifest validator and Node 22.5.0. The 0.1.1 iteration used macOS and Node 24.16.0; CI covers Linux/macOS and Node 22/24. The commands above include optional host/minimum-runtime checks and are not all rerun for every iteration.
 
 ## ZCode desktop runtime verification
 
@@ -71,4 +71,19 @@ On 2026-09-14, the 0.1.1 iteration additionally passed release-tarball installat
 
 GUI-driven model collaboration across Claude Desktop, Codex Desktop and ZCode Desktop has not been claimed as verified by this PR. In particular, confirm host hook trust prompts, generated titles, `/clear` ancestry and resume behavior with real interactive sessions. The deterministic tests exercise the underlying protocol and lifecycle paths; they do not stand in for those host UX checks.
 
-Windows, remote machines, active wakeups and creation of new Agent sessions are outside this Unix-socket v1 scope. Generic compatibility means an open MCP adapter contract, not a claim that every proprietary Agent host has been individually tested.
+Windows, remote machines and creation of new Agent sessions are outside this Unix-socket scope. Opt-in Codex wakeup uses the existing shared app-server public proxy; unsupported hosts remain manual. Generic compatibility means an open MCP adapter contract, not a claim that every proprietary Agent host has been individually tested.
+
+
+## 0.2.0 issue #5 coverage
+
+The regression suites add persisted command ownership and recovery, gated cancellation/reassignment, compact reads, event replay/filtering/retention gaps, commander-free channels, stable role inboxes and revoked old endpoints. Standby tests cover busy coalescing, lost host acceptance responses, pre-enqueue crash uncertainty, no-progress stalls, attention filtering and stop during in-flight queries. Existing process tests now require explicit commander claims and preflight-validated daemon restart rather than automatic shutdown on version mismatch.
+
+The Codex adapter uses the installed CLI's generated public request/response types for the experimental queue contract. No private host SQLite/rollout parsing is used. Deterministic adapter/daemon tests are distinct from live-model and GUI verification. CLI presence is `cli`; task status does not follow socket lifetime. All tests use temporary state, not normal ~/.cmdr data.
+
+
+Local verification for 0.2.0 (2026-09-16): `npm run check` passed 79 tests plus offline npm installation and seven-tool discovery; the targeted Node 22.5.0 suite passed 44 tests, including preflight and managed daemon processes. `npm run verify:zcode` validated the native plugin, discovered 1 command / 3 skills / 4 hooks / 1 MCP server, and connected seven tools from a fresh cache after removing the source directory. No model request was made.
+
+A read-only probe of the installed Codex CLI 0.153.4 confirmed that this desktop environment does not expose the CLI's default shared control socket. Live-model wake execution therefore remains unverified here; tests use a deterministic public-protocol host fixture. The adapter reports this transport failure and supports an explicit host-provided socket rather than spawning a competing app-server.
+
+
+Review regression verification for 0.2.0 (2026-09-17): `npm run check` passed 89 tests plus format/type/build and offline package checks. Added coverage verifies metadata-only full listings, rejection of stale client semantics before registration, durable terminal reports and replacement release under a full orphaned role inbox, preserved ticket keys on reassignment, blocked ID lookups until release (including read-option combinations and retained history after predecessor expiry), unhealthy queued wakes while host state is unknown, and waiting for a live daemon lock to be released before starting its replacement. Daemon shutdown closes its server before returning lock ownership. `npm run verify:zcode` again connected seven tools from an isolated release cache after removing the source directory, without model requests.

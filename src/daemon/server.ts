@@ -1,3 +1,4 @@
+import { StandbyManager } from './standby.js';
 import { createServer } from 'node:net';
 import { chmodSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { Core, type Context } from './core.js';
@@ -7,7 +8,7 @@ import { logger } from './logger.js';
 import { paths, prepare } from '../shared/paths.js';
 import { config } from '../shared/config.js';
 import { Rpc } from '../shared/rpc.js';
-import { PROTOCOL, VERSION } from '../shared/version.js';
+import { MIN_CLIENT_VERSION, PROTOCOL, VERSION, newer } from '../shared/version.js';
 import { fail } from '../shared/protocol.js';
 export async function startDaemon(home?: string) {
   process.umask(0o077);
@@ -17,6 +18,16 @@ export async function startDaemon(home?: string) {
   const log = logger(p.log),
     store = new Store(p.db),
     core = new Core(store, p, config(p.config));
+  const standby = new StandbyManager(core);
+  core.configureStandby = (sid, mode) =>
+    standby.configure({
+      sid,
+      action: 'start',
+      ...(mode === 'manual' ? { adapter: 'manual' } : {}),
+    });
+  const wakeTimer = setInterval(() => {
+    void standby.tick().catch((e) => log(`standby failed: ${String(e)}`));
+  }, 2000);
   const peers = new Set<Rpc>();
   let idleSince = Date.now(),
     stopping = false;
@@ -40,10 +51,32 @@ export async function startDaemon(home?: string) {
             'PROTOCOL_MISMATCH',
             `Protocol mismatch: client ${String(params.protocol).slice(0, 20)}, daemon ${PROTOCOL} (${VERSION}). Update/reinstall the plugin cache, restart the daemon with the matching cmdr installation, then restart the host session.`,
           );
+        const clientVersion =
+          typeof params.version === 'string'
+            ? params.version.match(/^(\d+\.\d+\.\d+)(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/)?.[1]
+            : undefined;
+        if (!clientVersion || newer(MIN_CLIENT_VERSION, clientVersion))
+          fail(
+            'PROTOCOL_MISMATCH',
+            `Daemon ${VERSION} requires client ${MIN_CLIENT_VERSION} or newer for compatible tool semantics. Update/reinstall the plugin cache and restart the host MCP connection.`,
+          );
         greeted = true;
+        ctx.version = String(params.version || 'unknown').slice(0, 80);
+        ctx.client = String(params.client || 'unknown').slice(0, 80);
         return { version: VERSION, protocol: PROTOCOL };
       }
+      if (method === 'admin.standby') {
+        if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
+        const result = standby.configure(params);
+        void standby.tick();
+        return result;
+      }
       if (method === 'admin.shutdown') {
+        if (params.reason === 'upgrade')
+          fail(
+            'UPGRADE_REQUIRES_RESTART',
+            'Automatic replacement is disabled. Run cmdr daemon restart from the new installation after preflight.',
+          );
         if (ctx.kind !== 'cli' && params.reason !== 'upgrade') fail('ROLE_NOT_ALLOWED');
         log(
           `shutdown requested: ${String(params.reason || 'operator')
@@ -73,10 +106,13 @@ export async function startDaemon(home?: string) {
     if (stopping) return;
     stopping = true;
     clearInterval(timer);
-    server.close();
+    clearInterval(wakeTimer);
+    standby.close();
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     for (const ctx of [...core.contexts]) core.disconnect(ctx);
     core.close();
     for (const peer of peers) peer.close();
+    await closed;
     store.close();
     rmSync(p.socket, { force: true });
     rmSync(p.info, { force: true });
@@ -110,7 +146,11 @@ export async function startDaemon(home?: string) {
           core.housekeep();
           if (existsSync(p.spawn) && Date.now() - statSync(p.spawn).mtimeMs > 10_000)
             rmSync(p.spawn, { recursive: true, force: true });
-          if (!peers.size && Date.now() - idleSince >= core.config.idleExitMinutes * 60_000)
+          if (
+            !peers.size &&
+            !standby.active &&
+            Date.now() - idleSince >= core.config.idleExitMinutes * 60_000
+          )
             void stop();
         } catch (e) {
           log(`housekeeping failed: ${String(e)}`);
