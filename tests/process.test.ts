@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { mkdtempSync, rmSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -204,6 +204,23 @@ it('propagates MCP cancellation without consuming a later message', async () => 
   await tool(e, 'list');
   await tool(c, 'send', { to: 'all', message: 'after cancellation' });
   expect((await tool(e, 'read')).messages[0].body).toBe('after cancellation');
+}, 10000);
+it('waits for the prior daemon lock before spending its single startup attempt', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-lock-handover-'));
+  const p = paths(home);
+  // Model shutdown after the socket disappears but before the live owner releases its lock.
+  writeFileSync(p.lock, String(process.pid));
+  const starting = run(cli, ['daemon', 'start'], { env: env() });
+  const result = expect(starting).resolves.toHaveProperty('stdout');
+  try {
+    await expect.poll(() => existsSync(p.spawn)).toBe(true);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(readFileSync(p.lock, 'utf8')).toBe(String(process.pid));
+  } finally {
+    rmSync(p.lock, { force: true });
+  }
+  await result;
+  expect((await quickCall('admin.status', {}, { home })).version).toBe(VERSION);
 }, 10000);
 it('recovers a daemon killed without shutdown and preserves queued messages', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-crash-'));

@@ -3,7 +3,8 @@ import { connect } from 'node:net';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { alive } from '../daemon/lock.js';
 import { paths, prepare, type Paths } from './paths.js';
 import { Rpc } from './rpc.js';
 import { CmdrError } from './protocol.js';
@@ -71,7 +72,15 @@ export async function daemonConnection(
           }
         }
       }
-      if (owner) {
+      let daemonOwnsLock = false;
+      try {
+        daemonOwnsLock = alive(Number(readFileSync(p.lock, 'utf8')));
+      } catch {
+        /* no daemon lock */
+      }
+      if (owner && !daemonOwnsLock) {
+        // Shutdown can unlink the socket before releasing the live daemon's lock.
+        // Wait for ownership to transfer rather than waste the only spawn on a locked daemon.
         // Only one spawn per lock acquisition. A later caller may retry after failure.
         if (attempt === 0 || !spawned) {
           const child = spawn(

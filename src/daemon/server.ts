@@ -108,10 +108,11 @@ export async function startDaemon(home?: string) {
     clearInterval(timer);
     clearInterval(wakeTimer);
     standby.close();
-    server.close();
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     for (const ctx of [...core.contexts]) core.disconnect(ctx);
     core.close();
     for (const peer of peers) peer.close();
+    await closed;
     store.close();
     rmSync(p.socket, { force: true });
     rmSync(p.info, { force: true });
