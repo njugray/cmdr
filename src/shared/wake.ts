@@ -31,10 +31,11 @@ export function hostStandby(mode: Standby['wake_mode']) {
   return mode === 'claude' || mode === 'zcode';
 }
 
-export function armHint(s: Standby) {
+export function armHint(s: Standby, home: string) {
   if (!hostStandby(s.wake_mode)) return undefined;
   const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-  const command = `${quote(fileURLToPath(new URL('../bin/cmdr', import.meta.url)))} standby watch --session ${quote(s.sid)}`;
+  // Host tools do not inherit the MCP launcher's environment.
+  const command = `CMDR_HOME=${quote(home)} ${quote(fileURLToPath(new URL('../bin/cmdr', import.meta.url)))} standby watch --session ${quote(s.sid)}`;
   return {
     command,
     tool: s.wake_mode === 'claude' ? 'Monitor' : 'Bash(run_in_background=true)',

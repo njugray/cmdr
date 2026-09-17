@@ -1,6 +1,6 @@
 {
   "name": "cmdr-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Local multi-agent squads for Claude Code, Codex, ZCode and any MCP host",
   "engines": {
@@ -19,12 +19,13 @@
     "verify:package": "node scripts/verify-package.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",
     "prettier": "^3.9.6",
+    "smol-toml": "^1.8.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.0"
   },
   "files": [

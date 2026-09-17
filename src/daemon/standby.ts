@@ -69,7 +69,7 @@ export class StandbyManager {
         !p.transport &&
         !p.resolve
       )
-        return { ...s, arm: armHint(s) };
+        return { ...s, arm: armHint(s, this.core.paths.home) };
       s.wake_mode =
         p.adapter ||
         (p.action === 'start'
@@ -95,7 +95,7 @@ export class StandbyManager {
       'standby.changed',
       p.resolve ? `operator resolved wake as ${p.resolve}` : p.action,
     );
-    return { ...s, arm: armHint(s) };
+    return { ...s, arm: armHint(s, this.core.paths.home) };
   }
   private save(s: Standby, kind?: string, reason?: string) {
     if (this.stopped || !this.core.store.session(s.sid)) return;

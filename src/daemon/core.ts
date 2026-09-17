@@ -163,7 +163,7 @@ export class Core {
               ? 'stalled'
               : standby.health,
           transport: standby.transport,
-          arm: armHint(standby),
+          arm: armHint(standby, this.paths.home),
           host_state: standby.host_state,
           checked_at: standby.checked_at,
           error: standby.error,

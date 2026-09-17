@@ -8,7 +8,23 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
-npm 包名为 **`cmdr-mcp`**，CLI 和宿主插件仍叫 **`cmdr`**。可直接安装：
+**一条命令完整安装（0.4.0，待发布）**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
+
+```sh
+npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
+```
+
+安装器会安装运行时、技能、MCP 和 hooks，并保留已有配置。重复执行可升级，增加 `--dry-run` 可预览。完成后新开会话并处理宿主信任提示。构建后的源码可直接运行 `plugins/cmdr/bin/cmdr setup --agent …`。
+
+只安装技能文件时使用：
+
+```sh
+npx skills add njugray/cmdr --skill cmdr
+```
+
+技能需要可用的 cmdr 运行时和 MCP 连接，可通过 setup 或下面的原生插件方式安装。配置位置、升级和恢复见[安装说明](setup.md)。
+
+npm 包名为 **`cmdr-mcp`**，CLI 和宿主插件仍叫 **`cmdr`**。需要全局 CLI 或原生插件时也可安装：
 
 ```sh
 npm install --global cmdr-mcp
@@ -26,7 +42,7 @@ npm run build
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.2.0.tgz
+npm install --global ./cmdr-mcp-0.4.0.tgz
 cmdr --help
 ```
 

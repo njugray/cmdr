@@ -42,6 +42,10 @@ try {
     '.claude-plugin/marketplace.json',
     'marketplace.json',
     'plugins/cmdr/.zcode-plugin/plugin.json',
+    'plugins/cmdr/skills/cmdr/SKILL.md',
+    'plugins/cmdr/skills/cmdr/references/setup.md',
+    'plugins/cmdr/skills/cmdr/references/commander.md',
+    'plugins/cmdr/skills/cmdr/references/executor.md',
   ])
     assert.ok(files.has(path), `Missing package asset: ${path}`);
   assert.ok(
@@ -134,8 +138,49 @@ try {
   const result = await client.callTool({ name: 'list', arguments: {} });
   assert.ok(!result.isError);
   assert.equal(JSON.parse(result.content[0].text).me.sid, 'generic:package-smoke');
+  // Exercise the documented one-command entry point from the real tarball,
+  // entirely offline, then remove npx's cache and use only the persisted runtime.
+  const setup = JSON.parse(
+    (
+      await run(
+        'npx',
+        [
+          '--yes',
+          '--offline',
+          '--package',
+          join(dir, pack.filename),
+          'cmdr',
+          'setup',
+          '--agent',
+          'claude-code',
+          '--config-dir',
+          join(dir, 'setup-host'),
+          '--json',
+        ],
+        { env, cwd: dir, timeout: 30000 },
+      )
+    ).stdout,
+  );
+  assert.equal(setup.ok, true);
+  assert.equal(setup.mcp.tools.length, 7);
+  rmSync(join(dir, 'npm-cache'), { recursive: true, force: true });
+  const persisted = JSON.parse(
+    (await run(setup.cli, ['doctor', '--deep'], { env, timeout: 15000 })).stdout,
+  );
+  assert.equal(persisted.installation.ok, true);
+  assert.equal(persisted.mcp.ok, true);
+  const repeated = JSON.parse(
+    (
+      await run(
+        setup.cli,
+        ['setup', '--agent', 'claude-code', '--config-dir', join(dir, 'setup-host'), '--json'],
+        { env, timeout: 15000 },
+      )
+    ).stdout,
+  );
+  assert.deepEqual(repeated.changed, []);
   console.log(
-    `npm package verified: ${pack.files.length} files, ${pack.size} compressed bytes; offline CLI and seven MCP tools work.`,
+    `npm package verified: ${pack.files.length} files, ${pack.size} compressed bytes; offline CLI, npx setup, repeat installation and seven MCP tools work after npx cache removal.`,
   );
 } finally {
   await client?.close();

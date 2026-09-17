@@ -8,7 +8,23 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-The npm package is **`cmdr-mcp`**; the CLI and host plugin remain **`cmdr`**. Install with:
+**One-command setup (0.4.0, not yet released):** replace `claude-code` with `codex` or `zcode` for your host.
+
+```sh
+npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
+```
+
+Setup installs the runtime, skill, MCP and hooks while preserving existing settings. Repeat to upgrade; add `--dry-run` to preview. Open a new session and complete any host trust prompts. For a built checkout, use `plugins/cmdr/bin/cmdr setup --agent …`.
+
+For skill files only:
+
+```sh
+npx skills add njugray/cmdr --skill cmdr
+```
+
+The skill requires a working cmdr runtime and MCP connection. Use setup or the native plugin below for those components. See [installation details](docs/setup.md).
+
+The npm package is **`cmdr-mcp`**; the CLI and host plugin remain **`cmdr`**. For a global CLI and native plugin installation:
 
 ```sh
 npm install --global cmdr-mcp
@@ -26,7 +42,7 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.2.0.tgz
+npm install --global ./cmdr-mcp-0.4.0.tgz
 cmdr --help
 ```
 

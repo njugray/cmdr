@@ -12,7 +12,15 @@ import { parseArgs } from 'node:util';
 import { quickCall, daemonConnection } from '../shared/client.js';
 import { paths } from '../shared/paths.js';
 import { VERSION } from '../shared/version.js';
-if (process.argv[2] === 'session') {
+import { runSetup } from './setup.js';
+if (process.argv[2] === 'setup') {
+  try {
+    await runSetup(process.argv.slice(3), dirname(dirname(fileURLToPath(import.meta.url))));
+  } catch (e: any) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
+} else if (process.argv[2] === 'session') {
   await runSession(process.argv.slice(3));
 } else {
   const { values: v, positionals: args } = parseArgs({
@@ -146,7 +154,7 @@ if (process.argv[2] === 'session') {
   try {
     if (v.help)
       process.stdout.write(
-        'cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
+        'cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
       );
     else if (cmd === 'config') {
       const agent = v.agent || 'generic';
