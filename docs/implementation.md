@@ -83,6 +83,23 @@ The Codex adapter uses the installed CLI's generated public request/response typ
 
 Local verification for 0.2.0 (2026-09-16): `npm run check` passed 79 tests plus offline npm installation and seven-tool discovery; the targeted Node 22.5.0 suite passed 44 tests, including preflight and managed daemon processes. `npm run verify:zcode` validated the native plugin, discovered 1 command / 3 skills / 4 hooks / 1 MCP server, and connected seven tools from a fresh cache after removing the source directory. No model request was made.
 
+## 0.3.0 standalone setup
+
+`cmdr setup --agent claude-code|codex|zcode` persists the selected bundled runtime, installs the self-contained `cmdr` skill and merges user MCP/hooks configuration. Build-specific runtime directories survive npx cache removal. Host-profile-specific launchers keep custom Codex configuration directories separate while allowing shared daemon state. Existing configuration is validated before writes; backups, a recovery journal, rollback and concurrent-edit checks protect installation changes. Setup preserves explicit hook opt-outs and leaves host trust review to the host. The daemon protocol and seven tools are unchanged.
+
+The new skill owns the commander/executor references. The build synchronizes legacy role skill entries from those references, preserving existing skill names without requiring them for standalone installation. `npx skills` distributes only the skill directory; runtime/MCP initialization uses setup. See [setup](setup.md) for paths and recovery.
+
+Local verification on 2026-09-17 (macOS, Node 24.16.0):
+
+- `npm run check`: 106 tests passed across 11 files, plus offline npm package verification. Vitest now injects the package version just as the production build does, keeping protocol checks accurate after a version bump.
+- The real tarball was invoked through `npx --package <tarball> cmdr setup` offline. The persisted CLI and all seven MCP tools passed after deleting the npx cache; repeated setup made no changes.
+- New process tests exercise three host configurations, source removal, existing config preservation, hooks and native identity routing, upgrades, damaged sources, conflicts, dry-run and independent host profiles. File tests cover rollback, concurrent edits and adoption of npx-skills copies/symlinks.
+- Actual Claude Code 2.1.161 and Codex CLI 0.153.4 accepted setup-generated MCP configuration in isolated profiles. No normal user host profile was modified.
+- `npx skills` installed the local `cmdr` skill and all three references in an isolated project; the skill validator passed.
+- `npm run verify:zcode` validated the native plugin, discovered 1 command / 4 skills / 4 hooks / 1 MCP server, and connected seven tools from its cache after removing the source package.
+
+These checks make no model requests. GUI trust prompts, actual host hook execution after startup and real model collaboration still require interactive verification. The standalone ZCode hook configuration follows the public user-hook contract; the native ZCode integration probe above tests the plugin route, not a user-profile GUI installation. Version 0.3.0 is prepared on the branch and has not been published by this work.
+
 A read-only probe of the installed Codex CLI 0.153.4 confirmed that this desktop environment does not expose the CLI's default shared control socket. Live-model wake execution therefore remains unverified here; tests use a deterministic public-protocol host fixture. The adapter reports this transport failure and supports an explicit host-provided socket rather than spawning a competing app-server.
 
 

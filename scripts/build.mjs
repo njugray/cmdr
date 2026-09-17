@@ -3,6 +3,15 @@ import { build } from 'esbuild';
 import { readFile, writeFile, mkdir, readdir, chmod } from 'node:fs/promises';
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 await mkdir('plugins/cmdr/dist', { recursive: true });
+// The standalone skill owns the role protocol. Keep the existing plugin skill
+// names as self-contained compatibility entries, generated from that source.
+for (const role of ['commander', 'executor']) {
+  const target = `plugins/cmdr/skills/cmdr-${role}/SKILL.md`;
+  const current = await readFile(target, 'utf8');
+  const frontmatter = current.match(/^---\n[\s\S]*?\n---\n/)[0];
+  const reference = await readFile(`plugins/cmdr/skills/cmdr/references/${role}.md`, 'utf8');
+  await writeFile(target, frontmatter + reference.replace(/^# [^\n]+\n\n/, ''));
+}
 const result = await build({
   metafile: true,
   entryPoints: {
