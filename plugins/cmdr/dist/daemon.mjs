@@ -42,10 +42,10 @@ function wakePrompt(id) {
 function hostStandby(mode) {
   return mode === "claude" || mode === "zcode";
 }
-function armHint(s) {
+function armHint(s, home) {
   if (!hostStandby(s.wake_mode)) return void 0;
   const quote = (value) => `'${value.replace(/'/g, "'\\''")}'`;
-  const command = `${quote(fileURLToPath(new URL("../bin/cmdr", import.meta.url)))} standby watch --session ${quote(s.sid)}`;
+  const command = `CMDR_HOME=${quote(home)} ${quote(fileURLToPath(new URL("../bin/cmdr", import.meta.url)))} standby watch --session ${quote(s.sid)}`;
   return {
     command,
     tool: s.wake_mode === "claude" ? "Monitor" : "Bash(run_in_background=true)",
@@ -440,7 +440,7 @@ var StandbyManager = class {
       if (p.adapter && p.adapter !== "manual" && p.adapter !== session.agent)
         fail("INVALID_ARGUMENT", "Adapter must match the member host");
       if (s.enabled && s.wake_mode !== "manual" && p.action === "start" && !p.adapter && !p.executable && !p.socket && !p.transport && !p.resolve)
-        return { ...s, arm: armHint(s) };
+        return { ...s, arm: armHint(s, this.core.paths.home) };
       s.wake_mode = p.adapter || (p.action === "start" ? ["codex", "claude", "zcode"].includes(session.agent) ? session.agent : "manual" : s.wake_mode);
       s.enabled = true;
       s.health = s.wake_mode === "manual" ? "manual" : "starting";
@@ -460,7 +460,7 @@ var StandbyManager = class {
       "standby.changed",
       p.resolve ? `operator resolved wake as ${p.resolve}` : p.action
     );
-    return { ...s, arm: armHint(s) };
+    return { ...s, arm: armHint(s, this.core.paths.home) };
   }
   save(s, kind, reason) {
     if (this.stopped || !this.core.store.session(s.sid)) return;
@@ -4998,7 +4998,7 @@ var Core = class {
       enabled: standby.enabled,
       health: hostStandby(standby.wake_mode) && standby.health === "healthy" && (!standby.lease || standby.lease.expires_at <= Date.now()) ? "stalled" : standby.health,
       transport: standby.transport,
-      arm: armHint(standby),
+      arm: armHint(standby, this.paths.home),
       host_state: standby.host_state,
       checked_at: standby.checked_at,
       error: standby.error,
@@ -6567,7 +6567,7 @@ var Rpc = class extends EventEmitter {
 
 // src/shared/version.ts
 var MIN_CLIENT_VERSION = "0.2.0";
-var VERSION = true ? "0.3.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.4.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);

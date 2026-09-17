@@ -239,7 +239,7 @@ var Rpc = class extends EventEmitter {
   request(method, params = {}, timeout = 5e3, signal) {
     if (this.socket.destroyed) return Promise.reject(new CmdrError("DAEMON_UNAVAILABLE"));
     if (signal?.aborted) return Promise.reject(new CmdrError("REQUEST_CANCELLED"));
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const id = this.next++;
       const cancel = (code) => {
         const p = this.pending.get(id);
@@ -253,7 +253,7 @@ var Rpc = class extends EventEmitter {
       const abort = () => cancel("REQUEST_CANCELLED");
       const timer = setTimeout(() => cancel("DAEMON_UNAVAILABLE"), timeout);
       this.pending.set(id, {
-        resolve: resolve3,
+        resolve: resolve4,
         reject,
         timer,
         cleanup: () => signal?.removeEventListener("abort", abort)
@@ -271,7 +271,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.3.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.4.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -284,7 +284,7 @@ function newer(a, b) {
 // src/shared/client.ts
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function dial(p, timeout = 1e3) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const socket = connect(p.socket);
     const timer = setTimeout(() => socket.destroy(new Error("connect timeout")), timeout);
     socket.once("error", (e) => {
@@ -293,7 +293,7 @@ async function dial(p, timeout = 1e3) {
     });
     socket.once("connect", () => {
       clearTimeout(timer);
-      resolve3(new Rpc(socket));
+      resolve4(new Rpc(socket));
     });
   });
 }
@@ -473,9 +473,9 @@ async function watch(sid, once = false) {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   const closed = new Promise(
-    (resolve3) => rpc.once("close", () => {
+    (resolve4) => rpc.once("close", () => {
       if (!stopped) error ||= new Error("cmdr daemon disconnected; re-arm the host watcher");
-      resolve3();
+      resolve4();
     })
   );
   const show = (result, initial = false) => {
@@ -570,7 +570,7 @@ async function tail(options) {
     do {
       try {
         const rpc = connection = await daemonConnection();
-        const closed = new Promise((resolve3) => rpc.once("close", resolve3));
+        const closed = new Promise((resolve4) => rpc.once("close", resolve4));
         await rpc.request("session.register", { kind: "cli" });
         let replaying = true;
         const buffer = [];
@@ -767,10 +767,10 @@ var util;
       return obj[e];
     });
   };
-  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object) => {
+  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object2) => {
     const keys = [];
-    for (const key in object) {
-      if (Object.prototype.hasOwnProperty.call(object, key)) {
+    for (const key in object2) {
+      if (Object.prototype.hasOwnProperty.call(object2, key)) {
         keys.push(key);
       }
     }
@@ -4947,13 +4947,13 @@ async function probeMcp(root) {
       fail2();
     }
   });
-  const request = (method, params) => new Promise((resolve3, reject) => {
+  const request = (method, params) => new Promise((resolve4, reject) => {
     if (closed || child.exitCode !== null || child.signalCode !== null) {
       reject(new Error("MCP exited"));
       return;
     }
     const id = ++requestId;
-    pending.set(id, { resolve: resolve3, reject });
+    pending.set(id, { resolve: resolve4, reject });
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   });
   let timer;
@@ -4986,15 +4986,15 @@ async function probeMcp(root) {
     clearTimeout(timer);
     child.stdin.end();
     child.kill("SIGTERM");
-    await new Promise((resolve3) => {
-      if (child.exitCode !== null || child.signalCode !== null) return resolve3();
+    await new Promise((resolve4) => {
+      if (child.exitCode !== null || child.signalCode !== null) return resolve4();
       const t = setTimeout(() => {
         child.kill("SIGKILL");
-        resolve3();
+        resolve4();
       }, 1e3);
       child.once("close", () => {
         clearTimeout(t);
-        resolve3();
+        resolve4();
       });
     });
     lines.close();
@@ -5009,16 +5009,1279 @@ async function probeMcp(root) {
 }
 
 // src/cli/main.ts
-import { readFileSync as readFileSync3, existsSync } from "node:fs";
-import { dirname as dirname2, join as join5, resolve as resolve2 } from "node:path";
-import { homedir as homedir2 } from "node:os";
+import { readFileSync as readFileSync5, existsSync as existsSync3 } from "node:fs";
+import { dirname as dirname3, join as join7, resolve as resolve3 } from "node:path";
+import { homedir as homedir3 } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { execFileSync } from "node:child_process";
+import { parseArgs as parseArgs3 } from "node:util";
+
+// src/cli/setup.ts
+import { createHash as createHash3, randomUUID as randomUUID4 } from "node:crypto";
+import {
+  cpSync as cpSync2,
+  existsSync as existsSync2,
+  mkdirSync as mkdirSync5,
+  readFileSync as readFileSync4,
+  realpathSync,
+  renameSync as renameSync3,
+  rmSync as rmSync5,
+  writeFileSync as writeFileSync3
+} from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join6, resolve as resolve2 } from "node:path";
 import { parseArgs as parseArgs2 } from "node:util";
-if (process.argv[2] === "session") {
+
+// src/cli/setup-config.ts
+import { isDeepStrictEqual } from "node:util";
+
+// node_modules/smol-toml/dist/date.js
+var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
+var TomlDate = class _TomlDate extends Date {
+  #hasDate = false;
+  #hasTime = false;
+  #offset = null;
+  constructor(date) {
+    let hasDate = true;
+    let hasTime = true;
+    let offset = "Z";
+    if (typeof date === "string") {
+      let match = date.match(DATE_TIME_RE);
+      if (match) {
+        if (!match[1]) {
+          hasDate = false;
+          date = `0000-01-01T${date}`;
+        }
+        hasTime = !!match[2];
+        hasTime && date[10] === " " && (date = date.replace(" ", "T"));
+        if (match[2] && +match[2] > 23) {
+          date = "";
+        } else {
+          offset = match[3] || null;
+          date = date.toUpperCase();
+          if (!offset && hasTime)
+            date += "Z";
+        }
+      } else {
+        date = "";
+      }
+    }
+    super(date);
+    if (!isNaN(this.getTime())) {
+      this.#hasDate = hasDate;
+      this.#hasTime = hasTime;
+      this.#offset = offset;
+    }
+  }
+  isDateTime() {
+    return this.#hasDate && this.#hasTime;
+  }
+  isLocal() {
+    return !this.#hasDate || !this.#hasTime || !this.#offset;
+  }
+  isDate() {
+    return this.#hasDate && !this.#hasTime;
+  }
+  isTime() {
+    return this.#hasTime && !this.#hasDate;
+  }
+  isValid() {
+    return this.#hasDate || this.#hasTime;
+  }
+  toISOString() {
+    let iso = super.toISOString();
+    if (this.isDate())
+      return iso.slice(0, 10);
+    if (this.isTime())
+      return iso.slice(11, 23);
+    if (this.#offset === null)
+      return iso.slice(0, -1);
+    if (this.#offset === "Z")
+      return iso;
+    let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
+    offset = this.#offset[0] === "-" ? offset : -offset;
+    let offsetDate = new Date(this.getTime() - offset * 6e4);
+    return offsetDate.toISOString().slice(0, -1) + this.#offset;
+  }
+  static wrapAsOffsetDateTime(jsDate, offset = "Z") {
+    let date = new _TomlDate(jsDate);
+    date.#offset = offset;
+    return date;
+  }
+  static wrapAsLocalDateTime(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#offset = null;
+    return date;
+  }
+  static wrapAsLocalDate(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#hasTime = false;
+    date.#offset = null;
+    return date;
+  }
+  static wrapAsLocalTime(jsDate) {
+    let date = new _TomlDate(jsDate);
+    date.#hasDate = false;
+    date.#offset = null;
+    return date;
+  }
+};
+
+// node_modules/smol-toml/dist/error.js
+function getLineColFromPtr(string, ptr) {
+  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
+  return [lines.length, lines.pop().length + 1];
+}
+function makeCodeBlock(string, line, column) {
+  let lines = string.split(/\r\n|\n|\r/g);
+  let codeblock = "";
+  let numberLen = (Math.log10(line + 1) | 0) + 1;
+  for (let i = line - 1; i <= line + 1; i++) {
+    let l = lines[i - 1];
+    if (!l)
+      continue;
+    codeblock += i.toString().padEnd(numberLen, " ");
+    codeblock += ":  ";
+    codeblock += l;
+    codeblock += "\n";
+    if (i === line) {
+      codeblock += " ".repeat(numberLen + column + 2);
+      codeblock += "^\n";
+    }
+  }
+  return codeblock;
+}
+var TomlError = class extends Error {
+  line;
+  column;
+  codeblock;
+  constructor(message, options) {
+    const [line, column] = getLineColFromPtr(options.toml, options.ptr);
+    const codeblock = makeCodeBlock(options.toml, line, column);
+    super(`Invalid TOML document: ${message}
+
+${codeblock}`, options);
+    this.line = line;
+    this.column = column;
+    this.codeblock = codeblock;
+  }
+};
+
+// node_modules/smol-toml/dist/util.js
+function indexOfNewline(str, start = 0) {
+  let idx = str.indexOf("\n", start);
+  if (str.charCodeAt(idx - 1) === 13)
+    idx--;
+  return idx;
+}
+function skipComment(ctx) {
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 10)
+      break;
+    if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10) {
+      ctx.p++;
+      break;
+    }
+    if (c < 32 && c !== 9 || c === 127) {
+      throw new TomlError("control characters are not allowed in comments", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+  }
+}
+function skipVoid(ctx, banNewLines, banComments) {
+  let c;
+  while (1) {
+    while ((c = ctx.s.charCodeAt(ctx.p)) === 32 || c === 9 || !banNewLines && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10))
+      ctx.p++;
+    if (banComments || c !== 35)
+      break;
+    skipComment(ctx);
+  }
+}
+function skipUntil(ctx, sep, end2) {
+  let ptr = ctx.p;
+  if (!end2) {
+    ptr = indexOfNewline(ctx.s, ptr);
+    ctx.p = ptr < 0 ? ctx.s.length : ptr;
+    return;
+  }
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 35) {
+      skipComment(ctx);
+    } else if (c === end2 || c === sep) {
+      return;
+    }
+  }
+  throw new TomlError("cannot find end of structure", {
+    toml: ctx.s,
+    ptr
+  });
+}
+
+// node_modules/smol-toml/dist/primitive.js
+var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
+var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
+var LEADING_ZERO = /^[+-]?0[0-9_]/;
+function parseString(ctx) {
+  let start = ctx.p;
+  let c = ctx.s.charCodeAt(ctx.p++);
+  let first = c;
+  let isLiteral = c === 39;
+  let isMultiline = c === ctx.s.charCodeAt(ctx.p) && c === ctx.s.charCodeAt(ctx.p + 1);
+  if (isMultiline) {
+    if ((c = ctx.s.charCodeAt(ctx.p += 2)) === 10)
+      ctx.p++;
+    else if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)
+      ctx.p += 2;
+  }
+  let parsed = "";
+  let sliceStart = ctx.p;
+  let state = 0;
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    c = ctx.s.charCodeAt(ctx.p);
+    if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
+      state = state && 3;
+    } else if (c < 32 && c !== 9 || c === 127) {
+      throw new TomlError("control characters are not allowed in strings", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
+      if (isMultiline) {
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+      }
+      if (!state)
+        parsed += ctx.s.slice(sliceStart, ctx.p);
+      ctx.p += isMultiline ? 3 : 1;
+      return parsed;
+    } else if (!state) {
+      if (!isLiteral && c === 92) {
+        parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
+        state = 1;
+      }
+    } else if (state === 1) {
+      if (c === 120 || c === 117 || c === 85) {
+        let value = 0;
+        let len = c === 120 ? 2 : c === 117 ? 4 : 8;
+        for (let j = 0; j < len; j++, ctx.p++) {
+          let hex = ctx.s.charCodeAt(ctx.p + 1);
+          let digit = (
+            /* 0-9 */
+            hex >= 48 && hex <= 57 ? hex - 48 : (
+              /* A-F */
+              hex >= 65 && hex <= 70 ? hex - 65 + 10 : (
+                /* a-f */
+                hex >= 97 && hex <= 102 ? hex - 97 + 10 : -1
+              )
+            )
+          );
+          if (digit < 0)
+            throw new TomlError("invalid non-hex character in unicode escape", { toml: ctx.s, ptr: ctx.p + 1 });
+          value = value << 4 | digit;
+        }
+        if (value < 0 || value > 1114111 || value >= 55296 && value <= 57343) {
+          throw new TomlError("invalid unicode escape", { toml: ctx.s, ptr: ctx.p });
+        }
+        parsed += String.fromCodePoint(value);
+        sliceStart = ctx.p + 1;
+        state = 0;
+      } else if (c === 32 || c === 9) {
+        state = 2;
+      } else {
+        if (c === 98)
+          parsed += "\b";
+        else if (c === 116)
+          parsed += "	";
+        else if (c === 110)
+          parsed += "\n";
+        else if (c === 102)
+          parsed += "\f";
+        else if (c === 114)
+          parsed += "\r";
+        else if (c === 101)
+          parsed += "\x1B";
+        else if (c === 34)
+          parsed += '"';
+        else if (c === 92)
+          parsed += "\\";
+        else
+          throw new TomlError("unrecognized escape sequence", { toml: ctx.s, ptr: ctx.p });
+        sliceStart = ctx.p + 1;
+        state = 0;
+      }
+    } else if (c !== 32 && c !== 9) {
+      if (state === 2) {
+        throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
+          toml: ctx.s,
+          ptr: sliceStart
+        });
+      }
+      state = !isLiteral && c === 92 ? 1 : 0;
+      sliceStart = ctx.p;
+    }
+  }
+  throw new TomlError("unfinished string", { toml: ctx.s, ptr: start });
+}
+function sliceAndTrimEndOf(ctx, start, end2) {
+  let value = ctx.s.slice(start, end2);
+  let commentIdx = value.indexOf("#");
+  if (commentIdx > 0) {
+    skipComment({ s: value, p: commentIdx, d: 0 });
+    value = value.slice(0, commentIdx);
+  }
+  return value.trimEnd();
+}
+function parseValue(ctx, integersAsBigInt, end2) {
+  let ptr = ctx.p;
+  let err = { toml: ctx.s, ptr };
+  skipUntil(ctx, 44, end2);
+  let value = sliceAndTrimEndOf(ctx, ptr, ctx.p);
+  if (!value)
+    throw new TomlError("incomplete declaration: value expected", err);
+  if (value === "-inf")
+    return -Infinity;
+  if (value === "inf" || value === "+inf")
+    return Infinity;
+  if (value === "nan" || value === "+nan" || value === "-nan")
+    return NaN;
+  if (value === "-0")
+    return integersAsBigInt ? 0n : 0;
+  let isInt = INT_REGEX.test(value);
+  if (isInt || FLOAT_REGEX.test(value)) {
+    if (LEADING_ZERO.test(value)) {
+      throw new TomlError("leading zeroes are not allowed", err);
+    }
+    value = value.replace(/_/g, "");
+    let numeric = +value;
+    if (isNaN(numeric)) {
+      throw new TomlError("invalid number", err);
+    }
+    if (isInt) {
+      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
+        throw new TomlError("integer value cannot be represented losslessly", err);
+      }
+      if (isInt || integersAsBigInt === true)
+        numeric = BigInt(value);
+    }
+    return numeric;
+  }
+  const date = new TomlDate(value);
+  if (!date.isValid())
+    throw new TomlError("invalid value", err);
+  return date;
+}
+
+// node_modules/smol-toml/dist/extract.js
+function extractValue(ctx, end2, integersAsBigInt) {
+  let ptr = ctx.p;
+  let c = ctx.s.charCodeAt(ptr);
+  if (c === 91 || c === 123) {
+    if (!ctx.d--) {
+      throw new TomlError("document contains excessively nested structures. aborting.", {
+        toml: ctx.s,
+        ptr
+      });
+    }
+    let value = c === 91 ? parseArray(ctx, integersAsBigInt) : parseInlineTable(ctx, integersAsBigInt);
+    ctx.d++;
+    return value;
+  }
+  if (c === 34 || c === 39) {
+    return parseString(ctx);
+  }
+  if (c === 116) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 114 || ctx.s.charCodeAt(++ctx.p) !== 117 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return true;
+  }
+  if (c === 102) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 108 || ctx.s.charCodeAt(++ctx.p) !== 115 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return false;
+  }
+  return parseValue(ctx, integersAsBigInt, end2);
+}
+
+// node_modules/smol-toml/dist/struct.js
+var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
+function parseKey(ctx, end2 = "=") {
+  let start = ctx.p;
+  let dot = start - 1;
+  let parsed = [];
+  let endPtr = ctx.s.indexOf(end2, start);
+  if (endPtr < 0) {
+    throw new TomlError("incomplete key-value: cannot find end of key", {
+      toml: ctx.s,
+      ptr: start
+    });
+  }
+  do {
+    let c = ctx.s.charCodeAt(ctx.p = ++dot);
+    if (c !== 32 && c !== 9) {
+      if (c === 34 || c === 39) {
+        if (c === ctx.s.charCodeAt(ctx.p + 1) && c === ctx.s.charCodeAt(ctx.p + 2)) {
+          throw new TomlError("multiline strings are not allowed in keys", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        let part = parseString(ctx);
+        dot = ctx.s.indexOf(".", ctx.p);
+        let strEnd = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
+        let newLine = indexOfNewline(strEnd);
+        if (newLine > -1) {
+          throw new TomlError("newlines are not allowed in keys", {
+            toml: ctx.s,
+            ptr: newLine
+          });
+        }
+        if (strEnd.trimStart()) {
+          throw new TomlError("found extra tokens after the string part", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        if (endPtr < ctx.p) {
+          endPtr = ctx.s.indexOf(end2, ctx.p);
+          if (endPtr < 0) {
+            throw new TomlError("incomplete key-value: cannot find end of key", {
+              toml: ctx.s,
+              ptr: start
+            });
+          }
+        }
+        parsed.push(part);
+      } else {
+        dot = ctx.s.indexOf(".", ctx.p);
+        let part = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
+        if (!KEY_PART_RE.test(part)) {
+          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
+            toml: ctx.s,
+            ptr: ctx.p
+          });
+        }
+        parsed.push(part.trimEnd());
+      }
+    }
+  } while (dot + 1 && dot < endPtr);
+  ctx.p = endPtr + 1;
+  skipVoid(ctx, true, true);
+  return parsed;
+}
+function parseInlineTable(ctx, integersAsBigInt) {
+  let res = {};
+  let seen = /* @__PURE__ */ new Set();
+  let c;
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 125) {
+      ctx.p++;
+      return res;
+    }
+    let k;
+    let t = res;
+    let hasOwn = false;
+    let p = ctx.p;
+    let key = parseKey(ctx);
+    for (let i = 0; i < key.length; i++) {
+      if (i)
+        t = hasOwn ? t[k] : t[k] = {};
+      k = key[i];
+      if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
+        throw new TomlError("trying to redefine an already defined value", {
+          toml: ctx.s,
+          ptr: p
+        });
+      }
+      if (!hasOwn && k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+      }
+    }
+    if (hasOwn) {
+      throw new TomlError("trying to redefine an already defined value", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+    let value = extractValue(ctx, 125, integersAsBigInt);
+    seen.add(t[k] = value);
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 125) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
+    }
+  }
+  throw new TomlError("unfinished table encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
+}
+function parseArray(ctx, integersAsBigInt) {
+  let res = [];
+  let c;
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 93) {
+      ctx.p++;
+      return res;
+    }
+    res.push(extractValue(ctx, 93, integersAsBigInt));
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 93) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
+    }
+  }
+  throw new TomlError("unfinished array encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
+}
+
+// node_modules/smol-toml/dist/parse.js
+function peekTable(key, table, meta, type) {
+  let t = table;
+  let m = meta;
+  let k;
+  let hasOwn = false;
+  let state;
+  for (let i = 0; i < key.length; i++) {
+    if (i) {
+      t = hasOwn ? t[k] : t[k] = {};
+      m = (state = m[k]).c;
+      if (type === 0 && (state.t === 1 || state.t === 2)) {
+        return null;
+      }
+      if (state.t === 2) {
+        let l = t.length - 1;
+        t = t[l];
+        m = m[l].c;
+      }
+    }
+    k = key[i];
+    if ((hasOwn = Object.hasOwn(t, k)) && m[k]?.t === 0 && m[k]?.d) {
+      return null;
+    }
+    if (!hasOwn) {
+      if (k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
+      }
+      m[k] = {
+        t: i < key.length - 1 && type === 2 ? 3 : type,
+        d: false,
+        i: 0,
+        c: {}
+      };
+    }
+  }
+  state = m[k];
+  if (state.t !== type && !(type === 1 && state.t === 3)) {
+    return null;
+  }
+  if (type === 2) {
+    if (!state.d) {
+      state.d = true;
+      t[k] = [];
+    }
+    t[k].push(t = {});
+    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
+  }
+  if (state.d) {
+    return null;
+  }
+  state.d = true;
+  if (type === 1) {
+    t = hasOwn ? t[k] : t[k] = {};
+  } else if (type === 0 && hasOwn) {
+    return null;
+  }
+  return [k, t, state.c];
+}
+function parse2(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
+  let ctx = { s: toml, p: 0, d: maxDepth };
+  let res = {};
+  let meta = {};
+  let tmp;
+  let tbl = res;
+  let m = meta;
+  skipVoid(ctx);
+  while (ctx.p < toml.length) {
+    if (toml.charCodeAt(ctx.p) === 91) {
+      let isTableArray = toml.charCodeAt(++ctx.p) === 91;
+      tmp = ctx.p += +isTableArray;
+      let k = parseKey(ctx, "]");
+      if (isTableArray) {
+        if (toml.charCodeAt(ctx.p - 1) !== 93) {
+          throw new TomlError("expected end of table declaration", {
+            toml,
+            ptr: ctx.p - 1
+          });
+        }
+        ctx.p++;
+      }
+      let p = peekTable(
+        k,
+        res,
+        meta,
+        isTableArray ? 2 : 1
+        /* Type.EXPLICIT */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr: tmp
+        });
+      }
+      m = p[2];
+      tbl = p[1];
+    } else {
+      tmp = ctx.p;
+      let k = parseKey(ctx);
+      let p = peekTable(
+        k,
+        tbl,
+        m,
+        0
+        /* Type.DOTTED */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr: tmp
+        });
+      }
+      p[1][p[0]] = extractValue(ctx, void 0, integersAsBigInt);
+    }
+    skipVoid(ctx, true);
+    if (ctx.p < toml.length && (tmp = toml.charCodeAt(ctx.p)) !== 10 && tmp !== 13) {
+      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
+        toml,
+        ptr: ctx.p
+      });
+    }
+    skipVoid(ctx);
+  }
+  return res;
+}
+
+// node_modules/smol-toml/dist/stringify.js
+var BARE_KEY = /^[a-z0-9-_]+$/i;
+function extendedTypeOf(obj) {
+  let type = typeof obj;
+  if (type === "object") {
+    if (Array.isArray(obj))
+      return "array";
+    if (typeof obj?.getUTCDate === "function" && obj instanceof Date)
+      return "date";
+    if (globalThis.Temporal && // check for the 'since' property as an early bailout that avoids running all 5 instanceof checks
+    typeof obj?.since === "function" && (obj instanceof Temporal.Instant || obj instanceof Temporal.PlainDate || obj instanceof Temporal.PlainDateTime || obj instanceof Temporal.PlainTime || obj instanceof Temporal.ZonedDateTime)) {
+      return "temporal";
+    }
+  }
+  return type;
+}
+function isArrayOfTables(obj) {
+  for (let i = 0; i < obj.length; i++) {
+    if (extendedTypeOf(obj[i]) !== "object")
+      return false;
+  }
+  return obj.length != 0;
+}
+function formatString(s) {
+  return JSON.stringify(s).replace(/\x7f/g, "\\u007f");
+}
+function stringifyTemporal(temporal) {
+  return temporal.toString({
+    calendarName: "never",
+    timeZoneName: "never"
+  });
+}
+function stringifyValue(val, type, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  switch (type) {
+    // @ts-expect-error -- intentional fallthrough case
+    case "number":
+      if (isNaN(val))
+        return "nan";
+      if (val === Infinity)
+        return "inf";
+      if (val === -Infinity)
+        return "-inf";
+      if (Number.isInteger(val) && (numberAsFloat || !Number.isSafeInteger(val)))
+        return val.toFixed(1);
+    case "bigint":
+    case "boolean":
+      return val.toString();
+    case "string":
+      return formatString(val);
+    case "date":
+      if (isNaN(val.getTime()))
+        throw new TypeError("cannot serialize invalid date");
+      return val.toISOString();
+    case "object":
+      return stringifyInlineTable(val, depth, numberAsFloat);
+    case "array":
+      return stringifyArray(val, depth, numberAsFloat);
+    case "temporal":
+      return stringifyTemporal(val);
+  }
+}
+function stringifyInlineTable(obj, depth, numberAsFloat) {
+  let keys = Object.keys(obj);
+  if (keys.length === 0)
+    return "{}";
+  let res = "{ ";
+  for (let i = 0; i < keys.length; i++) {
+    let k = keys[i];
+    if (i)
+      res += ", ";
+    res += BARE_KEY.test(k) ? k : formatString(k);
+    res += " = ";
+    res += stringifyValue(obj[k], extendedTypeOf(obj[k]), depth - 1, numberAsFloat);
+  }
+  return res + " }";
+}
+function stringifyArray(array, depth, numberAsFloat) {
+  if (array.length === 0)
+    return "[]";
+  let res = "[ ";
+  for (let i = 0; i < array.length; i++) {
+    if (i)
+      res += ", ";
+    if (array[i] === null || array[i] === void 0) {
+      throw new TypeError("arrays cannot contain null or undefined values");
+    }
+    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat);
+  }
+  return res + " ]";
+}
+function stringifyArrayTable(array, key, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  let res = "";
+  for (let i = 0; i < array.length; i++) {
+    res += `${res && "\n"}[[${key}]]
+`;
+    res += stringifyTable(0, array[i], key, depth, numberAsFloat);
+  }
+  return res;
+}
+function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  let preamble = "";
+  let tables = "";
+  let keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    let k = keys[i];
+    if (obj[k] !== null && obj[k] !== void 0) {
+      let type = extendedTypeOf(obj[k]);
+      if (type === "symbol" || type === "function") {
+        throw new TypeError(`cannot serialize values of type '${type}'`);
+      }
+      let key = BARE_KEY.test(k) ? k : formatString(k);
+      if (type === "array" && isArrayOfTables(obj[k])) {
+        tables += (tables && "\n") + stringifyArrayTable(obj[k], prefix ? `${prefix}.${key}` : key, depth - 1, numberAsFloat);
+      } else if (type === "object") {
+        let tblKey = prefix ? `${prefix}.${key}` : key;
+        tables += (tables && "\n") + stringifyTable(tblKey, obj[k], tblKey, depth - 1, numberAsFloat);
+      } else {
+        preamble += key;
+        preamble += " = ";
+        preamble += stringifyValue(obj[k], type, depth, numberAsFloat);
+        preamble += "\n";
+      }
+    }
+  }
+  if (tableKey && (preamble || !tables))
+    preamble = preamble ? `[${tableKey}]
+${preamble}` : `[${tableKey}]`;
+  return preamble && tables ? `${preamble}
+${tables}` : preamble || tables;
+}
+function stringify(obj, { maxDepth = 1e3, numbersAsFloat = false } = {}) {
+  if (extendedTypeOf(obj) !== "object") {
+    throw new TypeError("stringify can only be called with an object");
+  }
+  let str = stringifyTable(0, obj, "", maxDepth, numbersAsFloat);
+  if (str[str.length - 1] !== "\n")
+    return str + "\n";
+  return str;
+}
+
+// src/cli/setup-config.ts
+var begin = "# BEGIN cmdr setup";
+var end = "# END cmdr setup";
+function object(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${label} must be an object; no configuration was changed.`);
+  return value;
+}
+function jsonConfig(text2, label) {
+  try {
+    return object(JSON.parse(text2 || "{}"), label);
+  } catch {
+    throw new Error(`Cannot parse ${label} as a JSON object; no configuration was changed.`);
+  }
+}
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+function checkPlugin(config, host) {
+  const plugins = host === "codex" ? config.plugins : config.enabledPlugins || config.plugins?.enabledPlugins;
+  if (plugins && Object.entries(object(plugins, "plugins")).some(
+    ([name, value]) => /^(cmdr@|cmdr$)/.test(name) && (value === true || typeof value === "object" && value !== null && value.enabled !== false)
+  ))
+    throw new Error(
+      "The cmdr plugin is already enabled. Use its installation, or disable it before running standalone setup to avoid duplicate tools and hooks."
+    );
+}
+function serverConfig(previous, command, host) {
+  const server = previous === void 0 ? {} : object(previous, "cmdr MCP server");
+  if (previous !== void 0 && (server.command !== command || server.url))
+    throw new Error(
+      "An unmanaged cmdr MCP server already exists. Remove that cmdr entry before running setup; other servers will be preserved."
+    );
+  return {
+    ...server,
+    command,
+    args: [],
+    ...host === "codex" ? { tool_timeout_sec: 600 } : { type: "stdio" },
+    ...host === "zcode" ? { timeoutMs: 6e5 } : {}
+  };
+}
+function mergeJsonServer(config, command, host) {
+  const parent = host === "zcode" ? config.mcp = object(config.mcp ?? {}, "mcp") : config;
+  const key = host === "zcode" ? "servers" : "mcpServers";
+  const servers = parent[key] = object(parent[key] ?? {}, key);
+  servers.cmdr = serverConfig(servers.cmdr, command, host);
+}
+function codexConfig(text2, command) {
+  let config;
+  try {
+    config = parse2(text2, { integersAsBigInt: "asNeeded" });
+  } catch {
+    throw new Error("Cannot parse Codex config.toml; no configuration was changed.");
+  }
+  checkPlugin(config, "codex");
+  const servers = object(config.mcp_servers ?? {}, "mcp_servers");
+  const server = serverConfig(servers.cmdr, command, "codex");
+  const block = `${begin}
+${stringify({ mcp_servers: { cmdr: server } })}${end}`;
+  const start = text2.indexOf(begin), stop = text2.indexOf(end);
+  let output;
+  if (start >= 0 || stop >= 0) {
+    if (start < 0 || stop < start || text2.indexOf(begin, start + begin.length) >= 0 || text2.indexOf(end, stop + end.length) >= 0)
+      throw new Error(
+        "Invalid cmdr setup markers in config.toml. Restore the managed block before retrying."
+      );
+    output = text2.slice(0, start) + block + text2.slice(stop + end.length);
+  } else {
+    if (servers.cmdr !== void 0)
+      throw new Error(
+        "The cmdr MCP entry is not managed by setup. Remove that entry before retrying."
+      );
+    output = `${text2}${text2 && !text2.endsWith("\n") ? "\n" : ""}
+${block}
+`;
+  }
+  const expected = { ...config, mcp_servers: { ...servers, cmdr: server } };
+  try {
+    if (!isDeepStrictEqual(parse2(output, { integersAsBigInt: "asNeeded" }), expected))
+      throw new Error();
+  } catch {
+    throw new Error(
+      "Cannot safely merge the cmdr block into config.toml. Move the cmdr MCP entry to a separate table and retry."
+    );
+  }
+  return {
+    text: output,
+    hooksDisabled: config.features?.hooks === false || config.features?.codex_hooks === false,
+    serverDisabled: server.enabled === false
+  };
+}
+function mergeHooks(config, executable, host) {
+  const container = config.hooks = object(config.hooks ?? {}, "hooks");
+  const hooks = host === "zcode" ? container.events = object(container.events ?? {}, "hooks.events") : container;
+  const disabled = host === "zcode" ? container.enabled === false : config.disableAllHooks === true;
+  if (host === "zcode" && container.enabled === void 0) container.enabled = true;
+  const events2 = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "Stop",
+    ...host === "zcode" ? [] : ["SessionEnd"]
+  ];
+  for (const event of events2) {
+    const entries = hooks[event] ?? [];
+    if (!Array.isArray(entries)) throw new Error(`hooks.${event} must be an array.`);
+    const handler = host === "zcode" ? { type: "process", command: executable, args: [event], enabled: true, timeoutMs: 5e3 } : {
+      type: "command",
+      command: `${shellQuote(executable)} ${event}`,
+      timeout: event === "SessionEnd" ? 1 : 5
+    };
+    const retained = entries.flatMap((entry) => {
+      const group = object(entry, `hooks.${event} entry`);
+      if (!Array.isArray(group.hooks))
+        throw new Error(`hooks.${event} entry must contain a hooks array.`);
+      const handlers = group.hooks.filter((value) => {
+        const hook = object(value, "hook handler");
+        return !(hook.type === handler.type && hook.command === handler.command && (host !== "zcode" || isDeepStrictEqual(hook.args, handler.args)));
+      });
+      return handlers.length === group.hooks.length ? [group] : handlers.length ? [{ ...group, hooks: handlers }] : [];
+    });
+    hooks[event] = [...retained, { hooks: [handler] }];
+  }
+  return disabled;
+}
+
+// src/cli/setup-files.ts
+import { createHash as createHash2, randomUUID as randomUUID3 } from "node:crypto";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync as mkdirSync4,
+  readFileSync as readFileSync3,
+  readdirSync,
+  readlinkSync,
+  renameSync as renameSync2,
+  rmSync as rmSync4,
+  symlinkSync,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { basename, dirname as dirname2, join as join5 } from "node:path";
+function fingerprint(path) {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+  if (stat.isSymbolicLink()) return `link:${readlinkSync(path)}`;
+  if (stat.isDirectory())
+    return `dir:${readdirSync(path).sort().map((name) => JSON.stringify([name, fingerprint(join5(path, name))])).join("")}`;
+  if (!stat.isFile()) throw new Error(`Cannot replace non-file: ${path}`);
+  return `file:${stat.mode}:${createHash2("sha256").update(readFileSync3(path)).digest("hex")}`;
+}
+function fileChange(path, content, mode) {
+  const before = fingerprint(path);
+  if (before !== null && !before.startsWith("file:"))
+    throw new Error(`Expected a regular file at ${path}; no configuration was changed.`);
+  if (before !== null && readFileSync3(path, "utf8") === content && (mode === void 0 || (lstatSync(path).mode & 511) === mode))
+    return;
+  return {
+    path,
+    before,
+    content,
+    mode: mode ?? (before === null ? 384 : lstatSync(path).mode & 511)
+  };
+}
+function skillChange(path, target) {
+  const before = fingerprint(path);
+  if (before === `link:${target}`) return;
+  if (before !== null) {
+    let skill = "";
+    try {
+      skill = readFileSync3(join5(path, "SKILL.md"), "utf8");
+    } catch {
+    }
+    if (!/^name: cmdr$/m.test(skill) || !/^  source: https:\/\/github.com\/njugray\/cmdr$/m.test(skill))
+      throw new Error(
+        `An unrelated or unreadable skill exists at ${path}. Move it before installing cmdr.`
+      );
+  }
+  return { path, before, link: target };
+}
+function applyChanges(changes, backupRoot) {
+  const run = join5(backupRoot, `${Date.now()}-${randomUUID3()}`);
+  const applied = [];
+  const backups = [];
+  try {
+    for (const change of changes) {
+      if (fingerprint(change.path) !== change.before)
+        throw new Error(`Configuration changed during setup: ${change.path}. Retry setup.`);
+    }
+    for (const [index, change] of changes.entries()) {
+      if (fingerprint(change.path) !== change.before)
+        throw new Error(`Configuration changed during setup: ${change.path}. Retry setup.`);
+      mkdirSync4(dirname2(change.path), { recursive: true, mode: 448 });
+      const temporary = join5(
+        dirname2(change.path),
+        `.${basename(change.path)}.cmdr-${randomUUID3()}`
+      );
+      let backup;
+      try {
+        if (change.link) symlinkSync(change.link, temporary, "dir");
+        else writeFileSync2(temporary, change.content, { mode: change.mode, flag: "wx" });
+        if (change.before !== null) {
+          mkdirSync4(run, { recursive: true, mode: 448 });
+          backup = join5(run, `${index}-${basename(change.path)}`);
+          cpSync(change.path, backup, {
+            recursive: true,
+            dereference: false,
+            verbatimSymlinks: true
+          });
+        }
+        mkdirSync4(run, { recursive: true, mode: 448 });
+        backups.push({ path: change.path, backup: backup ?? null });
+        writeFileSync2(join5(run, "restore.json"), JSON.stringify(backups, null, 2) + "\n", {
+          mode: 384
+        });
+        if (change.before !== null) {
+          if (lstatSync(change.path).isDirectory()) rmSync4(change.path, { recursive: true });
+        }
+        const record = { change, backup, after: fingerprint(change.path) };
+        applied.push(record);
+        renameSync2(temporary, change.path);
+        record.after = fingerprint(change.path);
+      } finally {
+        rmSync4(temporary, { force: true });
+      }
+    }
+    return backups.length ? run : null;
+  } catch (error) {
+    const failures = [];
+    for (const { change, backup, after } of applied.reverse()) {
+      try {
+        if (fingerprint(change.path) !== after) throw new Error("concurrent edit");
+        rmSync4(change.path, { recursive: true, force: true });
+        if (backup)
+          cpSync(backup, change.path, {
+            recursive: true,
+            dereference: false,
+            verbatimSymlinks: true
+          });
+      } catch {
+        failures.push(change.path);
+      }
+    }
+    if (existsSync(run))
+      writeFileSync2(join5(run, "restore.json"), JSON.stringify(backups, null, 2) + "\n", {
+        mode: 384
+      });
+    if (failures.length)
+      throw new Error(`Setup failed. Restore these paths from ${run}: ${failures.join(", ")}`, {
+        cause: error
+      });
+    throw error;
+  }
+}
+
+// src/cli/setup.ts
+function read(path) {
+  try {
+    return readFileSync4(path, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return "";
+    throw e;
+  }
+}
+function configPath(path) {
+  return existsSync2(path) ? realpathSync(path) : path;
+}
+function launcher(runtime, entry, state, agent, codexHome) {
+  return `#!/bin/sh
+# Managed by cmdr setup (https://github.com/njugray/cmdr).
+export CMDR_HOME=${shellQuote(state)}
+${agent ? `export CMDR_AGENT=${shellQuote(agent)}
+` : ""}${agent === "codex" || agent === "zcode" ? "export CMDR_TOOL_TIMEOUT_SEC=600\n" : ""}${codexHome ? `export CODEX_HOME=${shellQuote(codexHome)}
+` : ""}exec ${shellQuote(join6(runtime, "bin", entry))} "$@"
+`;
+}
+async function runSetup(argv, sourceRoot) {
+  const { values, positionals } = parseArgs2({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      agent: { type: "string" },
+      "config-dir": { type: "string" },
+      "dry-run": { type: "boolean" },
+      json: { type: "boolean" },
+      help: { type: "boolean" }
+    }
+  });
+  if (values.help) {
+    console.log(
+      "cmdr setup --agent claude-code|codex|zcode [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile."
+    );
+    return;
+  }
+  const agent = values.agent === "claude-code" ? "claude" : values.agent;
+  if (positionals.length || !agent || !["claude", "codex", "zcode"].includes(agent))
+    throw new Error(
+      "Use cmdr setup --agent claude-code|codex|zcode. Other MCP hosts can use cmdr config --agent HOST."
+    );
+  const host = agent;
+  const source = await inspectInstallation(sourceRoot);
+  if (!source.ok)
+    throw new Error(`The source installation is incomplete: ${(source.errors || []).join("; ")}`);
+  const state = paths().home;
+  const digest = createHash3("sha256").update(readFileSync4(join6(sourceRoot, "dist/integrity.json"))).digest("hex").slice(0, 16);
+  const runtime = join6(state, "runtimes", `${source.version}-${digest}`);
+  const bin = join6(state, "bin");
+  const hostRoot = values["config-dir"] ? resolve2(values["config-dir"]) : host === "claude" ? resolve2(process.env.CLAUDE_CONFIG_DIR || join6(homedir2(), ".claude")) : host === "codex" ? resolve2(process.env.CODEX_HOME || join6(homedir2(), ".codex")) : join6(homedir2(), ".zcode");
+  const profile = createHash3("sha256").update(hostRoot).digest("hex").slice(0, 12);
+  const mcp = join6(bin, `cmdr-mcp-${host}-${profile}`), hook = join6(bin, `cmdr-hook-${host}-${profile}`);
+  const changes = [];
+  const warnings = [];
+  const add = (change) => {
+    if (change) changes.push(change);
+  };
+  const writeConfig = (path, config2) => add(fileChange(path, JSON.stringify(config2, null, 2) + "\n"));
+  let config;
+  if (host === "codex") {
+    config = configPath(join6(hostRoot, "config.toml"));
+    const merged = codexConfig(read(config), mcp);
+    add(fileChange(config, merged.text));
+    const hooksPath = configPath(join6(hostRoot, "hooks.json"));
+    const hooks = jsonConfig(read(hooksPath), hooksPath);
+    mergeHooks(hooks, hook, host);
+    writeConfig(hooksPath, hooks);
+    if (merged.hooksDisabled)
+      warnings.push(
+        "Codex hooks are explicitly disabled. Enable features.hooks in Codex to use identity stamps and lifecycle reminders."
+      );
+    if (merged.serverDisabled)
+      warnings.push("The existing cmdr MCP server remains disabled; enable it in Codex.");
+  } else {
+    const settingsPath = configPath(
+      join6(hostRoot, host === "claude" ? "settings.json" : "cli/config.json")
+    );
+    const settings = jsonConfig(read(settingsPath), settingsPath);
+    checkPlugin(settings, host);
+    config = host === "claude" ? configPath(
+      values["config-dir"] || process.env.CLAUDE_CONFIG_DIR ? join6(hostRoot, ".claude.json") : join6(homedir2(), ".claude.json")
+    ) : settingsPath;
+    const servers = config === settingsPath ? settings : jsonConfig(read(config), config);
+    mergeJsonServer(servers, mcp, host);
+    if (mergeHooks(settings, hook, host))
+      warnings.push(
+        `${host} user hooks remain disabled; enable them in the host settings to use lifecycle reminders.`
+      );
+    writeConfig(settingsPath, settings);
+    if (config !== settingsPath) writeConfig(config, servers);
+  }
+  for (const [path, entry, boundHost] of [
+    [join6(bin, "cmdr"), "cmdr", void 0],
+    [mcp, "cmdr-mcp", host],
+    [hook, "cmdr-hook", host]
+  ]) {
+    const current = read(path);
+    if (current && !current.startsWith("#!/bin/sh\n# Managed by cmdr setup (https://github.com/njugray/cmdr).\n"))
+      throw new Error(`Unmanaged executable at ${path}; move it before running setup.`);
+    add(
+      fileChange(
+        path,
+        launcher(runtime, entry, state, boundHost, boundHost === "codex" ? hostRoot : void 0),
+        493
+      )
+    );
+  }
+  const skill = join6(hostRoot, "skills/cmdr");
+  add(skillChange(skill, join6(runtime, "skills/cmdr")));
+  const result = {
+    agent: values.agent,
+    version: source.version,
+    runtime,
+    cli: join6(bin, "cmdr"),
+    config,
+    skill,
+    dry_run: !!values["dry-run"],
+    changed: changes.map((change) => change.path),
+    warnings,
+    restart: "Start a new host session and review any hook trust prompts."
+  };
+  const output = (extra) => {
+    if (values.json) console.log(JSON.stringify({ ...result, ...extra }, null, 2));
+    else {
+      console.log(
+        `${values["dry-run"] ? "Setup preview" : "Setup complete"}: cmdr ${source.version} for ${values.agent}
+Runtime: ${runtime}
+Skill: ${skill}
+Config: ${config}
+CLI: ${join6(bin, "cmdr")}
+${changes.length} files/links ${values["dry-run"] ? "would change" : "changed"}.`
+      );
+      if (extra.backup) console.log(`Backups: ${extra.backup}`);
+      for (const warning of warnings) console.log(warning);
+      console.log(result.restart);
+    }
+  };
+  if (values["dry-run"]) {
+    output({});
+    return;
+  }
+  mkdirSync5(state, { recursive: true, mode: 448 });
+  const lock = join6(state, "setup.lock");
+  try {
+    writeFileSync3(lock, String(process.pid), { flag: "wx", mode: 384 });
+  } catch (e) {
+    if (e.code === "EEXIST")
+      throw new Error(
+        `Another setup may be running. If it was interrupted, remove ${lock} after confirming that process has stopped, then retry.`
+      );
+    throw e;
+  }
+  let staging;
+  try {
+    if (!existsSync2(runtime)) {
+      mkdirSync5(join6(state, "runtimes"), { recursive: true, mode: 448 });
+      staging = `${runtime}.tmp-${randomUUID4()}`;
+      cpSync2(sourceRoot, staging, { recursive: true, dereference: false });
+      const integrity = await inspectInstallation(staging);
+      if (!integrity.ok) throw new Error("Copied runtime failed integrity verification.");
+      renameSync3(staging, runtime);
+      staging = void 0;
+    } else if (!(await inspectInstallation(runtime)).ok) {
+      throw new Error(`Installed runtime is damaged: ${runtime}. Move it aside and rerun setup.`);
+    }
+    const probe = await probeMcp(runtime);
+    if (!probe.ok)
+      throw new Error(
+        `MCP self-check failed: ${"error" in probe ? probe.error : "unknown error"}. Host configuration was not changed.`
+      );
+    const backup = applyChanges(changes, join6(state, "setup-backups"));
+    output({ ok: true, backup, mcp: probe });
+  } finally {
+    if (staging) rmSync5(staging, { recursive: true, force: true });
+    rmSync5(lock, { force: true });
+  }
+}
+
+// src/cli/main.ts
+if (process.argv[2] === "setup") {
+  try {
+    await runSetup(process.argv.slice(3), dirname3(dirname3(fileURLToPath3(import.meta.url))));
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
+} else if (process.argv[2] === "session") {
   await runSession(process.argv.slice(3));
 } else {
-  const { values: v, positionals: args } = parseArgs2({
+  const { values: v, positionals: args } = parseArgs3({
     allowPositionals: true,
     options: {
       agent: { type: "string" },
@@ -5065,11 +6328,11 @@ if (process.argv[2] === "session") {
       cmdr: VERSION,
       home: p.home
     };
-    const root = dirname2(dirname2(fileURLToPath3(import.meta.url)));
+    const root = dirname3(dirname3(fileURLToPath3(import.meta.url)));
     checks.bundles = Object.fromEntries(
-      ["daemon", "mcp", "hook", "cli"].map((n) => [n, existsSync(join5(root, "dist", `${n}.mjs`))])
+      ["daemon", "mcp", "hook", "cli"].map((n) => [n, existsSync3(join7(root, "dist", `${n}.mjs`))])
     );
-    const target = resolve2(v["plugin-root"] || root);
+    const target = resolve3(v["plugin-root"] || root);
     const installation = await inspectInstallation(target);
     checks.installation = installation;
     checks.diagnostics = diagnosticStatus();
@@ -5096,8 +6359,8 @@ if (process.argv[2] === "session") {
       checks.daemon = "not running";
     }
     try {
-      const conf = readFileSync3(
-        join5(process.env.CODEX_HOME || join5(homedir2(), ".codex"), "config.toml"),
+      const conf = readFileSync5(
+        join7(process.env.CODEX_HOME || join7(homedir3(), ".codex"), "config.toml"),
         "utf8"
       );
       checks.codex_hooks = /(?:^|\n)\s*hooks\s*=\s*false/.test(conf) ? "disabled" : "not explicitly disabled; verify features.hooks in Codex";
@@ -5115,15 +6378,15 @@ if (process.argv[2] === "session") {
       checks.codex_hooks = "Codex configuration unavailable";
     }
     const zcodeRoot = "/Applications/ZCode.app/Contents";
-    if (existsSync(join5(zcodeRoot, "Info.plist"))) {
+    if (existsSync3(join7(zcodeRoot, "Info.plist"))) {
       try {
         checks.zcode = {
           app_version: execFileSync(
             "/usr/libexec/PlistBuddy",
-            ["-c", "Print :CFBundleShortVersionString", join5(zcodeRoot, "Info.plist")],
+            ["-c", "Print :CFBundleShortVersionString", join7(zcodeRoot, "Info.plist")],
             { encoding: "utf8", timeout: 1e3 }
           ).trim(),
-          runtime: join5(zcodeRoot, "Resources/glm/zcode.cjs")
+          runtime: join7(zcodeRoot, "Resources/glm/zcode.cjs")
         };
       } catch {
         checks.zcode = "Installed";
@@ -5131,7 +6394,7 @@ if (process.argv[2] === "session") {
     } else
       checks.zcode = "Desktop app not found in /Applications; generic MCP configuration is available.";
     try {
-      const zconfig = JSON.parse(readFileSync3(join5(homedir2(), ".zcode/cli/config.json"), "utf8"));
+      const zconfig = JSON.parse(readFileSync5(join7(homedir3(), ".zcode/cli/config.json"), "utf8"));
       checks.zcode_user_hooks = zconfig.hooks?.enabled === true;
     } catch {
       checks.zcode_user_hooks = "No user hook config; installed plugin hooks follow plugin enablement.";
@@ -5141,15 +6404,15 @@ if (process.argv[2] === "session") {
   try {
     if (v.help)
       process.stdout.write(
-        "cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
+        "cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
       );
     else if (cmd === "config") {
       const agent = v.agent || "generic";
       if (!/^[a-z][a-z0-9_-]{0,63}$/.test(agent))
         throw new Error("Invalid --agent: use lowercase letters, digits, underscores or hyphens.");
-      const root = dirname2(dirname2(fileURLToPath3(import.meta.url)));
+      const root = dirname3(dirname3(fileURLToPath3(import.meta.url)));
       const server = {
-        command: join5(root, "bin/cmdr-mcp"),
+        command: join7(root, "bin/cmdr-mcp"),
         env: {
           CMDR_AGENT: agent,
           ...v.session ? { CMDR_SESSION_ID: v.session } : {},
@@ -5272,7 +6535,7 @@ if (process.argv[2] === "session") {
     } else if (cmd === "daemon") {
       const action = args[1] || "status";
       if (action === "logs")
-        process.stdout.write(existsSync(p.log) ? readFileSync3(p.log, "utf8") : "No daemon logs.\n");
+        process.stdout.write(existsSync3(p.log) ? readFileSync5(p.log, "utf8") : "No daemon logs.\n");
       else if (action === "status") print(await call("admin.status"));
       else if (action === "stop" || action === "restart") {
         if (action === "restart")
@@ -5280,7 +6543,7 @@ if (process.argv[2] === "session") {
             process.execPath,
             [
               "--experimental-sqlite",
-              join5(dirname2(fileURLToPath3(import.meta.url)), "daemon.mjs"),
+              join7(dirname3(fileURLToPath3(import.meta.url)), "daemon.mjs"),
               "--preflight"
             ],
             { timeout: 15e3, stdio: ["ignore", "pipe", "pipe"] }
@@ -5291,7 +6554,7 @@ if (process.argv[2] === "session") {
           if (action === "stop") throw e;
         }
         if (action === "restart") {
-          for (let n = 0; n < 60 && existsSync(p.socket); n++) await pause(50);
+          for (let n = 0; n < 60 && existsSync3(p.socket); n++) await pause(50);
           print(await call("admin.status", {}, true));
         }
       } else if (action === "start") print(await call("admin.status", {}, true));

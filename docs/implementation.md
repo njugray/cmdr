@@ -1,6 +1,6 @@
 # Implementation and verification
 
-This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.3.0**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.4.0**, internal protocol **1**.
 
 ## Delivered behavior
 
@@ -82,6 +82,12 @@ The Codex adapter uses the installed CLI's generated public request/response typ
 
 
 Local verification for 0.2.0 (2026-09-16): `npm run check` passed 79 tests plus offline npm installation and seven-tool discovery; the targeted Node 22.5.0 suite passed 44 tests, including preflight and managed daemon processes. `npm run verify:zcode` validated the native plugin, discovered 1 command / 3 skills / 4 hooks / 1 MCP server, and connected seven tools from a fresh cache after removing the source directory. No model request was made.
+
+## Standalone setup
+
+`cmdr setup` copies a verified runtime to a persistent build directory and installs profile-specific launchers, the `cmdr` skill and user MCP/hooks. Configuration edits preserve unrelated values and support backup/rollback. See [setup](setup.md) for usage and recovery.
+
+The standalone skill owns the role references; the build synchronizes the existing role skill entries from them. Setup tests cover all three hosts, upgrades, configuration preservation, failure recovery and profile isolation. Package verification runs the real npx entry point offline and checks it after removing the npx cache. Host GUI trust and live-model collaboration require separate verification.
 
 A read-only probe of the installed Codex CLI 0.153.4 confirmed that this desktop environment does not expose the CLI's default shared control socket. Live-model wake execution therefore remains unverified here; tests use a deterministic public-protocol host fixture. The adapter reports this transport failure and supports an explicit host-provided socket rather than spawning a competing app-server.
 

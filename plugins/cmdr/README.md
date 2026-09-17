@@ -2,6 +2,8 @@
 
 Connect local Claude Code, Codex, ZCode and other MCP-capable sessions as a squad. Requires macOS/Linux and Node.js ≥22.5 (24 recommended); npm distribution packages include all runtime dependencies. A source checkout requires `npm ci && npm run build` at the repository root before installation; generated `dist` files are not tracked by Git.
 
+For installation through `cmdr setup` or `npx skills`, see [standalone setup](https://github.com/njugray/cmdr/blob/main/docs/setup.md). Use one installation method per host to avoid duplicate tools and hooks.
+
 In each session enter `/cmdr my-project`. Joining defaults to executor, even for a new channel. Explicitly use role="commander" to claim command; no commander is required to retain a channel. Without slash commands, ask the Agent to call `join(squad_name="my-project")`.
 
 Tools: `join`, `list`, `send`, `report`, `ask`, `read`, `leave`. Executors report ready with capabilities/cwd, then read tasks, report results and ask when blocked. Commanders dispatch verifiable tasks and answer questions with `reply_to`. Acknowledge each command with working + reply_to before executing it. Use read(recover=true) to find unfinished commands after interruptions. Offline never means stopped. Use join(standby="auto") and check listener health; with a healthy listener, end the idle turn. Manual fallback is limited to two recommended waits.
