@@ -21469,16 +21469,20 @@ var schemas = {
     squad: external_exports.string().optional(),
     name: external_exports.string().trim().min(1).max(64).optional(),
     note: text.optional(),
-    squad_name: external_exports.string().trim().min(1).max(64).optional()
+    squad_name: external_exports.string().trim().min(1).max(64).optional(),
+    takeover: external_exports.boolean().default(false),
+    standby: external_exports.enum(["auto", "manual"]).optional(),
+    rebind: external_exports.string().optional()
   }).strict(),
   list: external_exports.object({
     ...identity,
+    full: external_exports.boolean().default(false),
     scope: external_exports.enum(["squad", "all"]).optional(),
     squad: external_exports.string().optional()
   }).strict(),
   report: external_exports.object({
     ...identity,
-    status: external_exports.enum(["ready", "working", "blocked", "done", "failed"]),
+    status: external_exports.enum(["ready", "working", "blocked", "done", "failed", "cancelled"]),
     message: text,
     reply_to: external_exports.string().optional(),
     data
@@ -21488,7 +21492,10 @@ var schemas = {
     ...identity,
     to: external_exports.union([external_exports.string().min(1), external_exports.array(external_exports.string().min(1)).min(1).max(1e3)]),
     message: text,
-    type: external_exports.enum(["command", "answer", "info"]).default("command"),
+    type: external_exports.enum(["command", "cancel", "answer", "info"]).default("command"),
+    task_key: external_exports.string().min(1).max(128).optional(),
+    reassign: external_exports.string().optional(),
+    attention: external_exports.boolean().optional(),
     priority: external_exports.enum(["high", "normal", "low"]).optional(),
     reply_to: external_exports.string().optional(),
     data
@@ -21499,13 +21506,16 @@ var schemas = {
     limit: external_exports.number().int().min(1).max(100).default(20),
     peek: external_exports.boolean().default(false),
     history: external_exports.boolean().default(false),
-    since: external_exports.string().optional()
+    since: external_exports.string().optional(),
+    id: external_exports.string().optional(),
+    recover: external_exports.boolean().default(false),
+    full: external_exports.boolean().default(false)
   }).strict(),
   leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text.optional() }).strict()
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.1.2" : "0.1.0";
+var VERSION = true ? "0.3.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -21620,7 +21630,18 @@ import { connect } from "node:net";
 import { spawn } from "node:child_process";
 import { dirname, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync as mkdirSync3, rmSync as rmSync2, statSync } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync2, rmSync as rmSync2, statSync } from "node:fs";
+
+// src/daemon/lock.ts
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
 
 // src/shared/rpc.ts
 import { EventEmitter } from "node:events";
@@ -21781,15 +21802,16 @@ async function daemonConnection(options = {}) {
             { from: hello.version, to: VERSION, protocol: hello.protocol },
             options.home
           );
-          await rpc.request("admin.shutdown", { reason: "upgrade", version: VERSION }, timeout);
-          rpc.close();
-          await sleep(100);
-          continue;
+          throw new CmdrError(
+            "UPGRADE_REQUIRED",
+            `Daemon ${hello.version} is older than client ${VERSION}. Run cmdr daemon restart from this installation; automatic replacement is disabled to protect live sessions.`
+          );
         }
         return rpc;
       } catch (e) {
         rpc?.close();
-        if (e.code === "PROTOCOL_MISMATCH" || !options.start) throw e;
+        if (e.code === "PROTOCOL_MISMATCH" || e.code === "UPGRADE_REQUIRED" || !options.start)
+          throw e;
       }
       if (!owner) {
         try {
@@ -21803,7 +21825,12 @@ async function daemonConnection(options = {}) {
           }
         }
       }
-      if (owner) {
+      let daemonOwnsLock = false;
+      try {
+        daemonOwnsLock = alive(Number(readFileSync2(p.lock, "utf8")));
+      } catch {
+      }
+      if (owner && !daemonOwnsLock) {
         if (attempt === 0 || !spawned) {
           const child = spawn(
             process.execPath,
@@ -22020,12 +22047,12 @@ function closeClients() {
 }
 var server = new McpServer({ name: "cmdr", version: VERSION });
 var descriptions = {
-  join: "Create/join a squad. For /cmdr <name>, pass only squad_name for atomic find-or-create. Otherwise specify role and optional squad ID/name. Executors report ready after joining. Reply to the user with user_reply, then read(wait=me.recommended_wait).",
-  list: "Show squad members, presence, activity and pending commands. scope=all lists squads and sessions.",
-  send: "Commander: dispatch clear tasks with acceptance criteria, or answer an ask using type=answer and reply_to. to accepts all, exact sid, unique sid prefix or member name.",
-  report: "Executor: report ready (cwd/capabilities), working, blocked, done or failed; include reply_to for the command.",
+  join: "Create/join a squad. For /cmdr <name>, pass squad_name for atomic find-or-create; role defaults to executor. Explicitly claim role=commander, use takeover=true for handover or rebind=member_id for a new endpoint. Otherwise specify role and optional squad ID/name. Use standby=auto; Claude/ZCode must run listener.arm.command with the indicated native host tool, and re-arm on termination. Codex is daemon driven. Inspect listener health before ending the turn. Executors report ready after joining. Reply with user_reply and follow listener health; bounded read(wait=me.recommended_wait) is the manual fallback.",
+  list: "Show task ownership, unacked_for, execution activity, connection presence and listener health. Offline never authorizes reassignment. Use full=true for expanded session metadata; listings never include command bodies. Read your own messages with read(id=...). scope=all lists squads and sessions.",
+  send: "Commander: dispatch clear tasks with acceptance criteria, or answer an ask using type=answer and reply_to. Use task_key to prevent duplicate tickets and reassign=<command id> for a gated handover preserving the original task_key. type=cancel with reply_to requests a safe stop. to accepts all, member_id, sid, unique sid prefix or member name.",
+  report: "Executor: report ready (cwd/capabilities), working, blocked, done, failed or cancelled; include reply_to for the command.",
   ask: "Executor: ask the commander for guidance. Optional wait waits for the matching answer; use me.recommended_wait as the upper bound.",
-  read: "Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Do at most 40 standby rounds.",
+  read: "Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Use recover=true for all unfinished commands (non-consuming), id for a non-consuming message lookup (blocked replacements return REASSIGNMENT_PENDING), full for squad details. With a healthy listener, end the turn. Claude/ZCode must first arm the built-in host watcher from listener.arm. Only when host wake is unavailable, do at most two waits and explain manual continuation.",
   leave: "Leave the squad. Commander departure orphans it; dissolve=true disbands it. Messages already queued remain readable."
 };
 for (const name of Object.keys(schemas)) {

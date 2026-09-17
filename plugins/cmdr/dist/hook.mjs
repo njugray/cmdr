@@ -101,7 +101,18 @@ import { connect } from "node:net";
 import { spawn } from "node:child_process";
 import { dirname, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync as mkdirSync3, rmSync as rmSync2, statSync } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync2, rmSync as rmSync2, statSync } from "node:fs";
+
+// src/daemon/lock.ts
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
 
 // src/shared/rpc.ts
 import { EventEmitter } from "node:events";
@@ -243,7 +254,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.1.2" : "0.1.0";
+var VERSION = true ? "0.3.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -289,15 +300,16 @@ async function daemonConnection(options = {}) {
             { from: hello.version, to: VERSION, protocol: hello.protocol },
             options.home
           );
-          await rpc.request("admin.shutdown", { reason: "upgrade", version: VERSION }, timeout);
-          rpc.close();
-          await sleep(100);
-          continue;
+          throw new CmdrError(
+            "UPGRADE_REQUIRED",
+            `Daemon ${hello.version} is older than client ${VERSION}. Run cmdr daemon restart from this installation; automatic replacement is disabled to protect live sessions.`
+          );
         }
         return rpc;
       } catch (e) {
         rpc?.close();
-        if (e.code === "PROTOCOL_MISMATCH" || !options.start) throw e;
+        if (e.code === "PROTOCOL_MISMATCH" || e.code === "UPGRADE_REQUIRED" || !options.start)
+          throw e;
       }
       if (!owner) {
         try {
@@ -311,7 +323,12 @@ async function daemonConnection(options = {}) {
           }
         }
       }
-      if (owner) {
+      let daemonOwnsLock = false;
+      try {
+        daemonOwnsLock = alive(Number(readFileSync2(p.lock, "utf8")));
+      } catch {
+      }
+      if (owner && !daemonOwnsLock) {
         if (attempt === 0 || !spawned) {
           const child = spawn(
             process.execPath,

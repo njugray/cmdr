@@ -6,8 +6,8 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// src/cli/session.ts
-import { parseArgs } from "node:util";
+// src/cli/watch.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/shared/diagnostics.ts
 import { mkdirSync as mkdirSync2, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
@@ -115,7 +115,18 @@ import { connect } from "node:net";
 import { spawn } from "node:child_process";
 import { dirname, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync as mkdirSync3, rmSync as rmSync2, statSync } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync2, rmSync as rmSync2, statSync } from "node:fs";
+
+// src/daemon/lock.ts
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
 
 // src/shared/rpc.ts
 import { EventEmitter } from "node:events";
@@ -260,7 +271,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.1.2" : "0.1.0";
+var VERSION = true ? "0.3.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -306,15 +317,16 @@ async function daemonConnection(options = {}) {
             { from: hello.version, to: VERSION, protocol: hello.protocol },
             options.home
           );
-          await rpc.request("admin.shutdown", { reason: "upgrade", version: VERSION }, timeout);
-          rpc.close();
-          await sleep(100);
-          continue;
+          throw new CmdrError(
+            "UPGRADE_REQUIRED",
+            `Daemon ${hello.version} is older than client ${VERSION}. Run cmdr daemon restart from this installation; automatic replacement is disabled to protect live sessions.`
+          );
         }
         return rpc;
       } catch (e) {
         rpc?.close();
-        if (e.code === "PROTOCOL_MISMATCH" || !options.start) throw e;
+        if (e.code === "PROTOCOL_MISMATCH" || e.code === "UPGRADE_REQUIRED" || !options.start)
+          throw e;
       }
       if (!owner) {
         try {
@@ -328,7 +340,12 @@ async function daemonConnection(options = {}) {
           }
         }
       }
-      if (owner) {
+      let daemonOwnsLock = false;
+      try {
+        daemonOwnsLock = alive(Number(readFileSync2(p.lock, "utf8")));
+      } catch {
+      }
+      if (owner && !daemonOwnsLock) {
         if (attempt === 0 || !spawned) {
           const child = spawn(
             process.execPath,
@@ -438,6 +455,173 @@ var DaemonClient = class {
     this.rpc?.close();
   }
 };
+
+// src/cli/watch.ts
+async function watch(sid, once = false) {
+  const rpc = await daemonConnection({ start: true, upgrade: true });
+  const token = randomUUID2();
+  let timer;
+  let stopped = false;
+  let checking = false;
+  let dirty = false;
+  let error;
+  const seen = /* @__PURE__ */ new Set();
+  const stop = () => {
+    stopped = true;
+    rpc.close();
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  const closed = new Promise(
+    (resolve3) => rpc.once("close", () => {
+      if (!stopped) error ||= new Error("cmdr daemon disconnected; re-arm the host watcher");
+      resolve3();
+    })
+  );
+  const show = (result, initial = false) => {
+    const current = /* @__PURE__ */ new Set();
+    const fresh = result.messages.filter((m) => {
+      const key = JSON.stringify([m.id, m.cancel_requested_at]);
+      current.add(key);
+      const alreadyAccepted = initial && m.type === "command" && m.work_state === "accepted" && !m.cancel_requested_at;
+      return !alreadyAccepted && !seen.has(key);
+    });
+    seen.clear();
+    for (const key of current) seen.add(key);
+    if (!fresh.length) return;
+    process.stdout.write(
+      JSON.stringify({
+        kind: "cmdr.wake",
+        sid,
+        messages: fresh,
+        instruction: "Call read and read(recover=true); handle cancellation first and report with reply_to."
+      }) + "\n"
+    );
+    if (once || result.wake_mode === "zcode") stop();
+  };
+  const check = async () => {
+    if (stopped) return;
+    if (checking) {
+      dirty = true;
+      return;
+    }
+    checking = true;
+    try {
+      do {
+        dirty = false;
+        show(await rpc.request("admin.watch", { sid, token, action: "pulse" }));
+      } while (dirty && !stopped);
+    } catch (e) {
+      if (!stopped) {
+        error = e;
+        stop();
+      }
+    } finally {
+      checking = false;
+    }
+  };
+  try {
+    await rpc.request("session.register", { kind: "cli" });
+    rpc.on("notification", (method) => {
+      if (method === "lifecycle.event") {
+        dirty = true;
+        if (timer) void check();
+      }
+    });
+    await rpc.request("admin.tail", { for: sid, after: "now" });
+    show(await rpc.request("admin.watch", { sid, token, action: "attach" }), true);
+    if (!stopped) {
+      timer = setInterval(() => {
+        void check();
+      }, 3e4);
+      if (dirty) await check();
+    }
+    await closed;
+    if (error) throw error;
+  } finally {
+    clearInterval(timer);
+    stopped = true;
+    rpc.close();
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
+}
+
+// src/cli/tail.ts
+async function tail(options) {
+  let after = options.after, stopped = false;
+  let connection;
+  const stop = () => {
+    stopped = true;
+    connection?.close();
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  const show = (event) => {
+    if (typeof after === "number" && event.event_seq <= after) return;
+    process.stdout.write(
+      options.json ? JSON.stringify(event) + "\n" : options.line ? `[cmdr] ${event.message?.type || event.kind} id=${event.message_id || "-"} from=${event.from_sid || "-"}${event.reply_to ? ` reply_to=${event.reply_to}` : ""}; call read and read(recover=true)
+` : `${event.event_seq} ${new Date(event.at).toISOString()} ${event.channel || "-"} ${event.kind} ${event.from_sid || "-"} \u2192 ${event.to_sid || "-"} ${event.message_id || ""}${event.reply_to ? ` reply_to=${event.reply_to}` : ""}${event.reason ? ` ${event.reason}` : ""}${event.message ? ` ${event.message.body.replace(/\s+/g, " ")}` : ""}
+`
+    );
+    after = event.event_seq;
+  };
+  try {
+    do {
+      try {
+        const rpc = connection = await daemonConnection();
+        const closed = new Promise((resolve3) => rpc.once("close", resolve3));
+        await rpc.request("session.register", { kind: "cli" });
+        let replaying = true;
+        const buffer = [];
+        rpc.on("notification", (method, value) => {
+          if (method === "lifecycle.event") replaying ? buffer.push(value) : show(value);
+        });
+        let result = await rpc.request(options.follow ? "admin.tail" : "admin.events", {
+          ...options,
+          after
+        });
+        if (result.gap) {
+          const gap = { kind: "retention.gap", after, retained_after: result.retained_after };
+          if (options.json) process.stdout.write(JSON.stringify(gap) + "\n");
+          else
+            process.stderr.write(
+              `cmdr: event retention gap; events through ${result.retained_after} expired
+`
+            );
+        }
+        for (; ; ) {
+          for (const event of result.events) show(event);
+          after = Math.max(typeof after === "number" ? after : 0, result.next);
+          if (result.next >= result.high) break;
+          result = await rpc.request("admin.events", { ...options, after });
+        }
+        replaying = false;
+        for (const event of buffer.sort((a, b) => a.event_seq - b.event_seq)) show(event);
+        if (!options.follow) rpc.close();
+        else await closed;
+      } catch (e) {
+        if (!options.follow || stopped) {
+          if (!stopped) throw e;
+        } else
+          process.stderr.write(
+            `cmdr tail: ${String(e)}; reconnecting after ${after ?? "latest"}
+`
+          );
+      } finally {
+        connection?.close();
+        connection = void 0;
+      }
+      if (options.follow && !stopped) await new Promise((r) => setTimeout(r, 1e3));
+    } while (options.follow && !stopped);
+  } finally {
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  }
+}
+
+// src/cli/session.ts
+import { parseArgs } from "node:util";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -4492,16 +4676,20 @@ var schemas = {
     squad: external_exports.string().optional(),
     name: external_exports.string().trim().min(1).max(64).optional(),
     note: text.optional(),
-    squad_name: external_exports.string().trim().min(1).max(64).optional()
+    squad_name: external_exports.string().trim().min(1).max(64).optional(),
+    takeover: external_exports.boolean().default(false),
+    standby: external_exports.enum(["auto", "manual"]).optional(),
+    rebind: external_exports.string().optional()
   }).strict(),
   list: external_exports.object({
     ...identity,
+    full: external_exports.boolean().default(false),
     scope: external_exports.enum(["squad", "all"]).optional(),
     squad: external_exports.string().optional()
   }).strict(),
   report: external_exports.object({
     ...identity,
-    status: external_exports.enum(["ready", "working", "blocked", "done", "failed"]),
+    status: external_exports.enum(["ready", "working", "blocked", "done", "failed", "cancelled"]),
     message: text,
     reply_to: external_exports.string().optional(),
     data
@@ -4511,7 +4699,10 @@ var schemas = {
     ...identity,
     to: external_exports.union([external_exports.string().min(1), external_exports.array(external_exports.string().min(1)).min(1).max(1e3)]),
     message: text,
-    type: external_exports.enum(["command", "answer", "info"]).default("command"),
+    type: external_exports.enum(["command", "cancel", "answer", "info"]).default("command"),
+    task_key: external_exports.string().min(1).max(128).optional(),
+    reassign: external_exports.string().optional(),
+    attention: external_exports.boolean().optional(),
     priority: external_exports.enum(["high", "normal", "low"]).optional(),
     reply_to: external_exports.string().optional(),
     data
@@ -4522,7 +4713,10 @@ var schemas = {
     limit: external_exports.number().int().min(1).max(100).default(20),
     peek: external_exports.boolean().default(false),
     history: external_exports.boolean().default(false),
-    since: external_exports.string().optional()
+    since: external_exports.string().optional(),
+    id: external_exports.string().optional(),
+    recover: external_exports.boolean().default(false),
+    full: external_exports.boolean().default(false)
   }).strict(),
   leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text.optional() }).strict()
 };
@@ -4591,6 +4785,16 @@ async function runSession(argv) {
         to: { type: "string" },
         type: { type: "string" },
         "reply-to": { type: "string" },
+        priority: { type: "string" },
+        "task-key": { type: "string" },
+        reassign: { type: "string" },
+        rebind: { type: "string" },
+        takeover: { type: "boolean" },
+        standby: { type: "string" },
+        full: { type: "boolean" },
+        recover: { type: "boolean" },
+        id: { type: "string" },
+        limit: { type: "string" },
         peek: { type: "boolean" },
         history: { type: "boolean" },
         dissolve: { type: "boolean" },
@@ -4600,7 +4804,7 @@ async function runSession(argv) {
     });
     if (v.help) {
       console.log(
-        "cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; commands do not wake agents."
+        "cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual."
       );
       return;
     }
@@ -4631,12 +4835,22 @@ async function runSession(argv) {
       to: "to",
       type: "type",
       "reply-to": "reply_to",
+      priority: "priority",
+      "task-key": "task_key",
+      reassign: "reassign",
+      rebind: "rebind",
+      takeover: "takeover",
+      standby: "standby",
+      full: "full",
+      recover: "recover",
+      id: "id",
       peek: "peek",
       history: "history",
       dissolve: "dissolve"
     };
     for (const [flag, field] of Object.entries(mapping))
       if (v[flag] !== void 0) input[field] = v[flag];
+    if (v.limit !== void 0) input.limit = Number(v.limit);
     if (v.all) input.scope = "all";
     if (v.wait !== void 0) input.wait = Number(v.wait);
     if (args.length > 1) input[action === "ask" ? "question" : "message"] = args.slice(1).join(" ");
@@ -4646,6 +4860,7 @@ async function runSession(argv) {
       throw new Error("--timeout must be >0 and <=3600 seconds");
     client = new DaemonClient({
       kind: "mcp",
+      transport: "cli",
       agent,
       native_id: native,
       cwd: process.cwd(),
@@ -4794,7 +5009,7 @@ async function probeMcp(root) {
 }
 
 // src/cli/main.ts
-import { readFileSync as readFileSync2, existsSync } from "node:fs";
+import { readFileSync as readFileSync3, existsSync } from "node:fs";
 import { dirname as dirname2, join as join5, resolve as resolve2 } from "node:path";
 import { homedir as homedir2 } from "node:os";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -4814,6 +5029,23 @@ if (process.argv[2] === "session") {
       to: { type: "string" },
       type: { type: "string" },
       "reply-to": { type: "string" },
+      priority: { type: "string" },
+      "task-key": { type: "string" },
+      reassign: { type: "string" },
+      after: { type: "string" },
+      for: { type: "string" },
+      adapter: { type: "string" },
+      transport: { type: "string" },
+      actionable: { type: "boolean" },
+      once: { type: "boolean" },
+      format: { type: "string" },
+      executable: { type: "string" },
+      socket: { type: "string" },
+      resolve: { type: "string" },
+      recover: { type: "boolean" },
+      history: { type: "boolean" },
+      id: { type: "string" },
+      limit: { type: "string" },
       session: { type: "string" },
       peek: { type: "boolean" },
       follow: { type: "boolean" },
@@ -4864,7 +5096,7 @@ if (process.argv[2] === "session") {
       checks.daemon = "not running";
     }
     try {
-      const conf = readFileSync2(
+      const conf = readFileSync3(
         join5(process.env.CODEX_HOME || join5(homedir2(), ".codex"), "config.toml"),
         "utf8"
       );
@@ -4899,7 +5131,7 @@ if (process.argv[2] === "session") {
     } else
       checks.zcode = "Desktop app not found in /Applications; generic MCP configuration is available.";
     try {
-      const zconfig = JSON.parse(readFileSync2(join5(homedir2(), ".zcode/cli/config.json"), "utf8"));
+      const zconfig = JSON.parse(readFileSync3(join5(homedir2(), ".zcode/cli/config.json"), "utf8"));
       checks.zcode_user_hooks = zconfig.hooks?.enabled === true;
     } catch {
       checks.zcode_user_hooks = "No user hook config; installed plugin hooks follow plugin enablement.";
@@ -4909,7 +5141,7 @@ if (process.argv[2] === "session") {
   try {
     if (v.help)
       process.stdout.write(
-        "cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] | send --squad ID [--to MEMBER] [--type command|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
+        "cmdr status | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
       );
     else if (cmd === "config") {
       const agent = v.agent || "generic";
@@ -4933,7 +5165,8 @@ if (process.argv[2] === "session") {
     else if (cmd === "list") {
       const result = await call("session.list", {
         scope: v.all ? "all" : void 0,
-        squad: v.squad
+        squad: v.squad,
+        full: !!v.full
       });
       if (v.json) print(result);
       else {
@@ -4945,11 +5178,16 @@ if (process.argv[2] === "session") {
             title: s.title,
             role: s.role,
             squad: s.squad,
-            presence: s.presence,
+            work: s.commands.map((m) => `${m.id}:${m.state}${m.cancel_requested_at ? ":cancelling" : ""}`).join(", "),
+            unacked: s.unacked,
+            in_progress: s.in_progress,
             activity: s.activity,
+            progress_seconds_ago: s.last_progress_at ? Math.floor((Date.now() - s.last_progress_at) / 1e3) : "unknown",
+            connection: s.presence,
             pending: s.pending,
+            wake: `${s.listener.wake_mode}/${s.listener.health}`,
             identity: s.native_id ? "confirmed" : "provisional",
-            age_ms: Date.now() - s.created_at,
+            seen_seconds_ago: Math.floor((Date.now() - s.last_seen) / 1e3),
             cwd: s.cwd,
             terminal: s.terminal?.program
           }))
@@ -4972,6 +5210,9 @@ if (process.argv[2] === "session") {
             to: v.to || "all",
             type: v.type || "command",
             reply_to: v["reply-to"],
+            priority: v.priority,
+            reassign: v.reassign,
+            task_key: v["task-key"],
             message: args.slice(1).join(" ")
           },
           true
@@ -4979,26 +5220,71 @@ if (process.argv[2] === "session") {
       );
     else if (cmd === "read") {
       if (!v.session) throw new Error("--session SID is required");
-      print(await call("admin.read", { sid: v.session, options: { peek: !!v.peek } }));
+      print(
+        await call("admin.read", {
+          sid: v.session,
+          options: {
+            peek: !!v.peek,
+            history: !!v.history,
+            full: !!v.full,
+            recover: !!v.recover,
+            id: v.id,
+            limit: v.limit ? Number(v.limit) : void 0
+          }
+        })
+      );
     } else if (cmd === "purge") print(await call("admin.purge", { all: !!v.all }));
-    else if (cmd === "tail") {
-      const rpc = await daemonConnection();
-      await rpc.request("session.register", { kind: "cli" });
-      if (v.follow) {
-        rpc.on("notification", (method, value) => {
-          if (method === "msg.event") print(value);
-        });
-        await rpc.request("admin.tail", { squad: v.squad, full: !!v.full });
-      }
-      print(await rpc.request("admin.recent", { squad: v.squad, full: !!v.full }));
-      if (!v.follow) rpc.close();
-      else process.on("SIGINT", () => rpc.close());
+    else if (cmd === "standby") {
+      if (!v.session) throw new Error("--session SID is required");
+      if (args[1] === "watch") await watch(v.session, !!v.once);
+      else
+        print(
+          await call(
+            "admin.standby",
+            {
+              sid: v.session,
+              action: args[1] || "status",
+              adapter: v.adapter,
+              transport: v.transport,
+              executable: v.executable,
+              socket: v.socket,
+              resolve: v.resolve
+            },
+            true
+          )
+        );
+    } else if (cmd === "tail") {
+      const after = v.after === void 0 ? void 0 : v.after === "now" ? "now" : Number(v.after);
+      if (after !== void 0 && after !== "now" && (!Number.isSafeInteger(after) || after < 0))
+        throw new Error("--after requires now or a nonnegative event_seq");
+      if (v.format && !["line", "json"].includes(v.format))
+        throw new Error("--format must be line or json");
+      await tail({
+        squad: v.squad,
+        for: v.for,
+        after,
+        full: !!v.full,
+        json: !!v.json || v.format === "json",
+        line: v.format === "line",
+        actionable: !!v.actionable,
+        follow: !!v.follow
+      });
     } else if (cmd === "daemon") {
       const action = args[1] || "status";
       if (action === "logs")
-        process.stdout.write(existsSync(p.log) ? readFileSync2(p.log, "utf8") : "No daemon logs.\n");
+        process.stdout.write(existsSync(p.log) ? readFileSync3(p.log, "utf8") : "No daemon logs.\n");
       else if (action === "status") print(await call("admin.status"));
       else if (action === "stop" || action === "restart") {
+        if (action === "restart")
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-sqlite",
+              join5(dirname2(fileURLToPath3(import.meta.url)), "daemon.mjs"),
+              "--preflight"
+            ],
+            { timeout: 15e3, stdio: ["ignore", "pipe", "pipe"] }
+          );
         try {
           print(await call("admin.shutdown", { reason: action }));
         } catch (e) {
