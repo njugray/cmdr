@@ -1,23 +1,31 @@
 import { afterEach, expect, it } from 'vitest';
 import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { fixture } from './helpers.js';
 import { DashboardServer } from '../src/daemon/dashboard-http.js';
 import { randomUUID } from 'node:crypto';
 import { get as httpGet } from 'node:http';
 
+const assets = {
+  'index.html': '<!doctype html><html><body>Dashboard HTTP fixture</body></html>',
+  'app.js': 'globalThis.dashboardFixture = true;',
+  'app.css': 'body { color: black; }',
+};
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
 async function setup() {
   const f = fixture();
+  // HTTP behavior uses disposable assets; production bundles are checked by verify:package.
+  const assetRoot = join(f.home, 'dashboard');
+  mkdirSync(assetRoot);
+  for (const [name, body] of Object.entries(assets)) {
+    writeFileSync(join(assetRoot, name), body);
+  }
   const { c, id } = await f.squad();
-  const server = new DashboardServer(
-    f.core,
-    () => {},
-    pathToFileURL(resolve('plugins/cmdr/dist/dashboard') + '/'),
-  );
+  const server = new DashboardServer(f.core, () => {}, pathToFileURL(assetRoot + '/'));
   cleanup.push(async () => {
     await server.close();
     f.close();
@@ -65,7 +73,16 @@ it('requires a one-use bootstrap and same-origin authenticated requests, without
   const state = await (await x.get('/api/state')).json();
   expect(state.home).toBe(x.f.home);
   expect(state.squads[0].id).toBe(x.id);
-  expect((await x.get('/app.js')).headers.get('content-type')).toContain('javascript');
+  for (const [name, type] of [
+    ['index.html', 'text/html'],
+    ['app.js', 'text/javascript'],
+    ['app.css', 'text/css'],
+  ] as const) {
+    const response = await x.get(name === 'index.html' ? '/' : `/${name}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain(type);
+    expect(await response.text()).toBe(assets[name]);
+  }
   expect((await x.server.open()).url.startsWith(x.origin)).toBe(true);
 });
 
