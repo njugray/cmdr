@@ -63,7 +63,7 @@ const descriptions: Record<Tool, string> = {
   report:
     'Executor: report ready (cwd/capabilities), working, blocked, done, failed or cancelled; include reply_to for the command.',
   ask: 'Executor: ask the commander for guidance. Optional wait waits for the matching answer; use me.recommended_wait as the upper bound.',
-  read: 'Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Use recover=true for all unfinished commands (non-consuming), id for a non-consuming message lookup, full for squad details. With a healthy managed listener, end the turn. Otherwise do at most two waits and explain manual continuation.',
+  read: 'Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Use recover=true for all unfinished commands (non-consuming), id for a non-consuming message lookup (blocked replacements return REASSIGNMENT_PENDING), full for squad details. With a healthy managed listener, end the turn. Otherwise do at most two waits and explain manual continuation.',
   leave:
     'Leave the squad. Commander departure orphans it; dissolve=true disbands it. Messages already queued remain readable.',
 };

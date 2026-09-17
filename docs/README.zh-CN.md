@@ -96,7 +96,7 @@ plugins/cmdr/bin/cmdr purge
 
 消息投递状态与任务状态分开：queued → read → accepted → completed/failed/cancelled。`working + reply_to` 接单；`read(recover=true)` 找回所有未终结 command，包括已读未接单。`pending=0`、`unread=0`、offline 均不代表停工。`list` 展示归属、接单时长与进度时间；`send(task_key=...)` 防止同一票重复派发，`reassign=<command id>` 先请求原执行者取消，终态确认后才放行替代任务；改派保留原 task_key，不允许换键。每条任务的首次关联终态报告有保留入队能力，角色收件箱满时仍会原子保存终态和报告；普通报告与重复终态报告仍受队列上限约束。没有 exactly-once 执行承诺。
 
-`read`/`list` 默认精简输出，完整摘要用 `--full`，列表始终不含任务正文；使用 `--limit` 或 `read --id` 获取正文，不要用 head 截断消费型读取。`tail --after EVENT_SEQ --for SID --json --full` 提供可补播事件，永不消费工作队列。升级改用 `cmdr daemon restart`：先在数据库副本上验证，再停止旧 daemon；旧客户端不能再通过 upgrade 请求反复关闭服务。0.2 daemon 在握手阶段拒绝 0.1.x 客户端并提示刷新/重装插件缓存、重连宿主。
+`read`/`list` 默认精简输出，完整摘要用 `--full`，列表始终不含任务正文；使用 `--limit` 或 `read --id` 获取正文，未放行的替代任务通过 ID 查阅时也会返回 `REASSIGNMENT_PENDING`，不会提前暴露正文；不要用 head 截断消费型读取。`tail --after EVENT_SEQ --for SID --json --full` 提供可补播事件，永不消费工作队列。升级改用 `cmdr daemon restart`：先在数据库副本上验证，再停止旧 daemon；旧客户端不能再通过 upgrade 请求反复关闭服务。0.2 daemon 在握手阶段拒绝 0.1.x 客户端并提示刷新/重装插件缓存、重连宿主。
 
 ## 开发与验证
 

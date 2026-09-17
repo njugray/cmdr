@@ -107,6 +107,72 @@ it('cancels unread work immediately without delivering it to the old owner', asy
   expect((await f.core.handle(e, 'msg.read')).messages.map((m: any) => m.type)).toEqual(['cancel']);
   expect((await f.core.handle(n, 'msg.read')).messages[0].body).toBe('new');
 });
+it.each(['done', 'failed', 'cancelled'] as const)(
+  'gates ID reads until the predecessor reports %s, then preserves non-consuming history lookup',
+  async (status) => {
+    f = fixture();
+    const { c, e, id: squad } = await f.squad();
+    const n = await f.session('generic', 'replacement');
+    await f.core.handle(n, 'session.join', { role: 'executor', squad });
+    const original = (await f.core.handle(c, 'msg.send', { to: e.sid, message: 'original' }))
+      .ids[0];
+    await f.core.handle(e, 'msg.read');
+    const id = (
+      await f.core.handle(c, 'msg.send', {
+        to: n.sid,
+        message: 'replacement body',
+        data: { detail: 'replacement data' },
+        reassign: original,
+      })
+    ).ids[0];
+    const listing = await f.core.handle(n, 'session.list', { full: true });
+    expect(listing.sessions.find((s: any) => s.sid === n.sid).commands[0].id).toBe(id);
+    const options = [{}, { peek: true }, { recover: true }, { history: true }, { full: true }];
+    for (const option of options) {
+      expect((await f.core.handle(n, 'msg.read', option)).messages).toHaveLength(0);
+      await expect(f.core.handle(n, 'msg.read', { ...option, id })).rejects.toMatchObject({
+        code: 'REASSIGNMENT_PENDING',
+      });
+    }
+    await expect(f.core.handle(c, 'msg.read', { id })).rejects.toMatchObject({
+      code: 'MESSAGE_NOT_FOUND',
+    });
+    const op = await operator();
+    await expect(
+      f.core.handle(op, 'admin.read', { sid: n.sid, options: { id } }),
+    ).rejects.toMatchObject({ code: 'REASSIGNMENT_PENDING' });
+    expect(f.store.message(id)).toMatchObject({ status: 'queued', work: { state: 'queued' } });
+    expect(
+      f.store.events().some((event) => event.kind === 'message.read' && event.message_id === id),
+    ).toBe(false);
+    await f.core.handle(e, 'msg.report', {
+      status,
+      reply_to: original,
+      message: 'original stopped',
+    });
+    for (const option of options) {
+      expect((await f.core.handle(n, 'msg.read', { ...option, id })).messages[0]).toMatchObject({
+        id,
+        body: 'replacement body',
+        data: { detail: 'replacement data' },
+      });
+      expect(f.store.message(id)?.status).toBe('queued');
+    }
+    expect((await f.core.handle(n, 'msg.read')).messages[0].id).toBe(id);
+    await f.core.handle(n, 'msg.report', {
+      status: 'done',
+      reply_to: id,
+      message: 'replacement done',
+    });
+    const predecessor = f.store.message(original)!;
+    predecessor.created_at = 1;
+    f.store.saveMessage(predecessor);
+    f.core.housekeep();
+    expect(f.store.message(original)).toBeUndefined();
+    expect((await f.core.handle(n, 'msg.read', { id })).messages[0].body).toBe('replacement body');
+    expect((await f.core.handle(n, 'msg.read', { history: true })).messages[0].id).toBe(id);
+  },
+);
 it('keeps task bodies out of full listings, including callers outside the channel', async () => {
   f = fixture();
   const { c, e, id: squad } = await f.squad();

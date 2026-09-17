@@ -1009,6 +1009,9 @@ export class Core {
         (m.to_sid !== s.sid && !(s.role === 'commander' && m.to_sid === `squad:${s.squad_id}`))
       )
         fail('MESSAGE_NOT_FOUND');
+      // Gate queued work; keep delivered history readable after its predecessor expires.
+      if (m.status === 'queued' && m.blocked_by && !terminalWork(this.store.message(m.blocked_by)))
+        fail('REASSIGNMENT_PENDING', 'Original owner has not stopped');
       queue = [m];
     }
     if (p.since) {
