@@ -24,12 +24,16 @@ export async function watch(sid: string, once = false) {
       resolve();
     }),
   );
-  const show = (result: any) => {
+  const show = (result: any, initial = false) => {
     const current = new Set<string>();
     const fresh = result.messages.filter((m: any) => {
       const key = JSON.stringify([m.id, m.cancel_requested_at]);
       current.add(key);
-      return !seen.has(key);
+      // Re-arming must not wake again just because an owned command is blocked.
+      // Keep it recoverable, but seed it as seen; pending cancellation still wakes.
+      const alreadyAccepted =
+        initial && m.type === 'command' && m.work_state === 'accepted' && !m.cancel_requested_at;
+      return !alreadyAccepted && !seen.has(key);
     });
     seen.clear();
     for (const key of current) seen.add(key);
@@ -76,7 +80,7 @@ export async function watch(sid: string, once = false) {
       }
     });
     await rpc.request('admin.tail', { for: sid, after: 'now' });
-    show(await rpc.request('admin.watch', { sid, token, action: 'attach' }));
+    show(await rpc.request('admin.watch', { sid, token, action: 'attach' }), true);
     if (!stopped) {
       timer = setInterval(() => {
         void check();

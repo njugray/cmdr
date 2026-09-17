@@ -82,6 +82,102 @@ it.each(['claude', 'zcode'])(
   },
   15000,
 );
+it.each(['claude', 'zcode'])(
+  '%s one-shot watcher waits for answers when re-armed around blocked work and still observes cancellation',
+  async (agent) => {
+    home = mkdtempSync(join(tmpdir(), 'cmdr-watch-blocked-'));
+    const sid = `${agent}:e`;
+    const watchArgs = [
+      'standby',
+      'watch',
+      '--session',
+      sid,
+      ...(agent === 'claude' ? ['--once'] : []),
+    ];
+    const listener = () => command(['standby', 'status', '--session', sid]);
+    await member('custom', 'c', 'join', { role: 'commander', squad_name: 'blocked' });
+    await member(agent, 'e', 'join', { squad_name: 'blocked', standby: 'auto' });
+    const id = (await member('custom', 'c', 'send', { to: sid, message: 'task' })).ids[0];
+    await member(agent, 'e', 'read');
+    await member(agent, 'e', 'report', { status: 'working', reply_to: id, message: 'accepted' });
+    await member(agent, 'e', 'report', { status: 'blocked', reply_to: id, message: 'need input' });
+    const question = await member(agent, 'e', 'ask', { question: 'Which option?', reply_to: id });
+    const arm = async () => {
+      const watcher = follower(watchArgs);
+      await expect.poll(async () => (await listener()).health).toBe('healthy');
+      const checked = (await listener()).checked_at;
+      // Force another snapshot so silence is checked after attach and a live pulse.
+      await member('custom', 'c', 'send', { to: 'all', type: 'info', message: 'quiet' });
+      await expect.poll(async () => (await listener()).checked_at).toBeGreaterThan(checked);
+      expect(watcher.output()).toBe('');
+      expect(watcher.child.exitCode).toBeNull();
+      return watcher;
+    };
+    const first = await arm();
+    first.child.kill();
+    await first.exited;
+    await run(cli, ['daemon', 'restart'], { env: env() });
+    const again = await arm();
+    const answer = (
+      await member('custom', 'c', 'send', {
+        to: sid,
+        type: 'answer',
+        reply_to: question.id,
+        message: 'Use option A',
+      })
+    ).ids[0];
+    expect(await again.exited).toBe(0);
+    expect(JSON.parse(again.output()).messages.map((m: any) => m.id)).toEqual([answer]);
+    expect((await member(agent, 'e', 'read', { recover: true })).messages).toMatchObject([
+      { id, work: { state: 'accepted' } },
+    ]);
+    // The answer is still unread, so the next attach must notify immediately.
+    const unread = follower(watchArgs);
+    expect(await unread.exited).toBe(0);
+    expect(JSON.parse(unread.output()).messages.map((m: any) => m.id)).toEqual([answer]);
+    await member(agent, 'e', 'read');
+    const cancelling = await arm();
+    const cancel = (
+      await member('custom', 'c', 'send', {
+        to: sid,
+        type: 'cancel',
+        reply_to: id,
+        message: 'Stop at a safe checkpoint',
+      })
+    ).ids[0];
+    expect(await cancelling.exited).toBe(0);
+    expect(JSON.parse(cancelling.output()).messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: cancel, type: 'cancel' }),
+        expect.objectContaining({ id, cancel_requested_at: expect.any(Number) }),
+      ]),
+    );
+    await member(agent, 'e', 'read');
+    // Consuming the cancel message does not acknowledge cancellation of the work.
+    const pendingCancel = follower(watchArgs);
+    expect(await pendingCancel.exited).toBe(0);
+    expect(JSON.parse(pendingCancel.output()).messages).toMatchObject([
+      { id, work_state: 'accepted', cancel_requested_at: expect.any(Number) },
+    ]);
+  },
+  15000,
+);
+it.each(['queued', 'read'])(
+  'notifies for %s but unaccepted commands already present when a watcher attaches',
+  async (state) => {
+    home = mkdtempSync(join(tmpdir(), 'cmdr-watch-backlog-'));
+    await member('custom', 'c', 'join', { role: 'commander', squad_name: 'backlog' });
+    await member('zcode', 'e', 'join', { squad_name: 'backlog', standby: 'auto' });
+    const id = (await member('custom', 'c', 'send', { to: 'zcode:e', message: 'task' })).ids[0];
+    if (state === 'read') await member('zcode', 'e', 'read');
+    const watcher = follower(['standby', 'watch', '--session', 'zcode:e']);
+    expect(await watcher.exited).toBe(0);
+    expect(JSON.parse(watcher.output()).messages).toMatchObject([{ id, work_state: state }]);
+    expect((await member('zcode', 'e', 'read', { recover: true })).messages).toMatchObject([
+      { id, work: { state } },
+    ]);
+  },
+);
 it('actionable tail filters role-inbox reports and starts at now without losing the subscription race', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-watch-tail-'));
   await member('claude', 'c', 'join', { role: 'commander', squad_name: 'tail' });
