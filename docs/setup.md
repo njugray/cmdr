@@ -1,6 +1,6 @@
 # Standalone setup
 
-Available from cmdr-mcp 0.3.0. Requires macOS/Linux and Node.js >=22.5 (24 recommended).
+Available from cmdr-mcp 0.4.0. Requires macOS/Linux and Node.js >=22.5 (24 recommended).
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -8,7 +8,7 @@ npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 
 Choose `claude-code`, `codex` or `zcode`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the seven tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
 
-Before 0.3.0 is published, build the checkout and run `plugins/cmdr/bin/cmdr setup --agent …`, or use a locally packed tarball.
+Before 0.4.0 is published, build the checkout and run `plugins/cmdr/bin/cmdr setup --agent …`, or use a locally packed tarball.
 
 To install only the self-contained skill and its role/setup references:
 
