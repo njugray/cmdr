@@ -148,4 +148,6 @@ cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --re
 
 运行 `cmdr dashboard` 打开本机看板；setup 安装使用其返回的稳定 CLI 路径。`--no-open` 只输出短时访问地址。单个 React 页面切换多个小队，以任务工作区、底部成员／活动坞和常驻确认面板展示进展。用户通过内置表单提交答复，也可向当前小队的指挥官留言；留言复用现有用户消息队列，不直接修改任务。普通进展更新不会整页刷新，切换小队保留表单草稿。
 
+看板文案默认跟随系统／浏览器首选语言：中文（`zh-*`）显示简体中文，其他语言显示英文。Agent／用户内容与 HTML 展示保持原样；更改浏览器语言后刷新页面生效。
+
 指挥官通过 `task` 管理任务，`send(task_id=...)` 关联派发，`ask(target="user")` 创建问题，`artifact` 发布隔离的 HTML 补充说明。用户答案持久化后进入当前指挥官收件箱；读取不代表处理，使用 `ask(target="user", action="handle", id=..., version=..., result=...)` 明确记录结果。关闭页面不结束小队。数据隔离、重试、恢复、HTML 限制和升级见[看板使用说明](dashboard.md)。

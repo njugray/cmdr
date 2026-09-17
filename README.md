@@ -121,6 +121,8 @@ Every successful tool result includes identity, recommended wait and unread coun
 
 Run `cmdr dashboard` (or the stable CLI path printed by setup) to open the built-in React dashboard. `--no-open` prints a short-lived local access URL. One page switches between squads, with a task workspace, a member/activity dock, and a persistent confirmation panel. Users can submit structured answers or send a note to the selected squad’s commander; notes enter the existing user-message queue without directly changing tasks. The loopback HTTP/SSE service runs inside the existing daemon; closing the page does not stop collaboration.
 
+Dashboard UI copy follows the system/browser’s preferred language: Chinese (`zh-*`) uses Simplified Chinese; other languages use English. Agent/user content and HTML artifacts remain unchanged. Reload after changing the browser language.
+
 Commanders create tasks with `task(action="create", title=...)`, dispatch using `send(task_id=..., to=..., message=...)`, and ask the user with `ask(target="user", question=..., kind="single|multiple|text|confirm")`. Answers enter the stable commander inbox; explicitly use `ask(target="user", action="handle", id=..., version=..., result=...)` after processing. `artifact` publishes self-contained sandboxed HTML explanations. See [dashboard operations and limits](docs/dashboard.md).
 
 ## Installation diagnostics and member CLI

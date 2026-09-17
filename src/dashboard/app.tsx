@@ -11,83 +11,84 @@ import type {
   UserMessageInput,
   UserMessageReceipt,
 } from '../shared/dashboard.js';
+import { t as text, locale } from './i18n.js';
 import { api, ApiError } from './api.js';
 import { refreshQueue } from './refresh.js';
 
 const labels: Record<TaskState, string> = {
-  planned: '待派发',
-  queued: '待接单',
-  read: '已读待接单',
-  working: '执行中',
-  blocked: '阻塞',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
+  planned: text('待派发'),
+  queued: text('待接单'),
+  read: text('已读待接单'),
+  working: text('执行中'),
+  blocked: text('阻塞'),
+  completed: text('已完成'),
+  failed: text('失败'),
+  cancelled: text('已取消'),
 };
 const questionLabels = {
-  pending: '等待你的答复',
-  answered: '答复已接收 · 等待处理',
-  handled: '指挥官已处理',
-  withdrawn: '已撤回',
+  pending: text('等待你的答复'),
+  answered: text('答复已接收 · 等待处理'),
+  handled: text('指挥官已处理'),
+  withdrawn: text('已撤回'),
 };
 const listenerLabels: Record<string, string> = {
-  starting: '正在启动',
-  healthy: '监听健康',
-  stopped: '监听已停止',
-  manual: '手动继续',
-  error: '监听异常',
-  uncertain: '状态待确认',
-  stalled: '等待响应',
+  starting: text('正在启动'),
+  healthy: text('监听健康'),
+  stopped: text('监听已停止'),
+  manual: text('手动继续'),
+  error: text('监听异常'),
+  uncertain: text('状态待确认'),
+  stalled: text('等待响应'),
 };
 const wakeLabels: Record<string, string> = {
-  requested: '正在投递',
-  accepted: '宿主已接收',
-  observed: '已观察到响应',
-  uncertain: '投递结果待确认',
-  failed: '投递失败',
+  requested: text('正在投递'),
+  accepted: text('宿主已接收'),
+  observed: text('已观察到响应'),
+  uncertain: text('投递结果待确认'),
+  failed: text('投递失败'),
 };
 const eventLabels: Record<string, string> = {
-  'dashboard.task': '任务更新',
-  'dashboard.question': '问题更新',
-  'dashboard.artifact': '展示块更新',
-  'message.queued': '新消息',
-  'message.read': '消息已读',
-  'work.cancelled': '任务已取消',
-  'work.cancel_requested': '请求取消任务',
-  'work.reassigned': '任务重新分配',
-  'work.progress': '任务进展',
-  'work.released': '后续任务可开始',
-  'channel.created': '小队已创建',
-  'channel.closed': '小队已关闭',
-  'commander.handover': '指挥官交接',
-  'commander.claimed': '指挥官就位',
-  'member.joined': '成员加入',
-  'member.left': '成员离队',
-  'member.rebound': '成员会话更新',
-  'session.registered': '会话已连接',
-  'session.disconnected': '会话已断开',
-  'session.activity': '成员活动',
-  'session.reset': '会话已重置',
+  'dashboard.task': text('任务更新'),
+  'dashboard.question': text('问题更新'),
+  'dashboard.artifact': text('展示块更新'),
+  'message.queued': text('新消息'),
+  'message.read': text('消息已读'),
+  'work.cancelled': text('任务已取消'),
+  'work.cancel_requested': text('请求取消任务'),
+  'work.reassigned': text('任务重新分配'),
+  'work.progress': text('任务进展'),
+  'work.released': text('后续任务可开始'),
+  'channel.created': text('小队已创建'),
+  'channel.closed': text('小队已关闭'),
+  'commander.handover': text('指挥官交接'),
+  'commander.claimed': text('指挥官就位'),
+  'member.joined': text('成员加入'),
+  'member.left': text('成员离队'),
+  'member.rebound': text('成员会话更新'),
+  'session.registered': text('会话已连接'),
+  'session.disconnected': text('会话已断开'),
+  'session.activity': text('成员活动'),
+  'session.reset': text('会话已重置'),
 };
 const time = (n?: number | null) =>
   n
-    ? new Date(n).toLocaleString('zh-CN', {
+    ? new Date(n).toLocaleString(locale, {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
       })
-    : '暂无记录';
+    : text('暂无记录');
 const errorText = (e: unknown) =>
   e instanceof ApiError && e.code === 'UNAUTHORIZED'
-    ? '访问凭证已失效，请重新运行 cmdr dashboard 打开看板。'
+    ? text('访问凭证已失效，请重新运行 cmdr dashboard 打开看板。')
     : e instanceof Error
       ? e.message
-      : '连接失败，请稍后重试。';
+      : text('连接失败，请稍后重试。');
 const enc = encodeURIComponent;
 const shortId = (id: string) => id.split(':').at(-1)!.slice(-6);
 const clockTime = (n: number) =>
-  new Date(n).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  new Date(n).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 interface Overview {
   home: string;
   version: string;
@@ -116,9 +117,11 @@ export function ArtifactView({
   return (
     <section className={`artifact ${expanded ? 'artifact-expanded' : ''}`}>
       <div className="artifact-heading">
-        <span>HTML 展示 · {artifact.title}</span>
+        <span>
+          {text('HTML 展示 ·')} {artifact.title}
+        </span>
         <button type="button" className="subtle" onClick={() => setExpanded(!expanded)}>
-          {expanded ? '收起展示' : '扩大展示'}
+          {expanded ? text('收起展示') : text('扩大展示')}
         </button>
       </div>
       <iframe
@@ -179,7 +182,7 @@ export function QuestionCard({
     change((d) => ({ ...d, attempt, sending: true, error: undefined }));
     try {
       await api('/api/answers', attempt);
-      change((d) => ({ ...d, sending: false, error: '答复已接收，正在同步处理状态。' }));
+      change((d) => ({ ...d, sending: false, error: text('答复已接收，正在同步处理状态。') }));
     } catch (e) {
       const definitive =
         e instanceof ApiError &&
@@ -192,8 +195,8 @@ export function QuestionCard({
         attempt: definitive ? undefined : attempt,
         error:
           e instanceof ApiError && e.code === 'VERSION_CONFLICT'
-            ? '问题已更新。输入已保留，请核对新内容后再提交。'
-            : `${errorText(e)}${definitive ? '' : ' 可以重试同一次提交。'}`,
+            ? text('问题已更新。输入已保留，请核对新内容后再提交。')
+            : `${errorText(e)}${definitive ? '' : ' ' + text('可以重试同一次提交。')}`,
       }));
     }
   }
@@ -229,14 +232,17 @@ export function QuestionCard({
         <div className="question-reference">
           {taskTitle && (
             <>
-              关联任务{' '}
+              {text('关联任务')}{' '}
               <button type="button" className="subtle" onClick={openTask}>
                 {taskTitle}
               </button>
               <span>·</span>
             </>
           )}
-          <span>内容版本 v{q.version}</span>
+          <span>
+            {text('内容版本 v')}
+            {q.version}
+          </span>
           {q.status !== 'pending' && (
             <button
               className="subtle collapse-question"
@@ -244,7 +250,7 @@ export function QuestionCard({
               onClick={() => setExpanded(false)}
               aria-expanded={true}
             >
-              收起
+              {text('收起')}
             </button>
           )}
         </div>
@@ -258,7 +264,7 @@ export function QuestionCard({
           >
             {changed && (
               <div className="notice">
-                <p>问题或补充说明已更新。你的输入已保留，请核对新内容。</p>
+                <p>{text('问题或补充说明已更新。你的输入已保留，请核对新内容。')}</p>
                 <button
                   type="button"
                   disabled={!!draft.sending}
@@ -273,19 +279,19 @@ export function QuestionCard({
                     }))
                   }
                 >
-                  已核对新内容
+                  {text('已核对新内容')}
                 </button>
               </div>
             )}
             <fieldset disabled={locked}>
               <legend>
                 {q.kind === 'multiple'
-                  ? '选择所有适用项'
+                  ? text('选择所有适用项')
                   : q.kind === 'single'
-                    ? '选择一项'
+                    ? text('选择一项')
                     : q.kind === 'confirm'
-                      ? '请确认'
-                      : '你的答复'}
+                      ? text('请确认')
+                      : text('你的答复')}
               </legend>
               {['single', 'multiple'].includes(q.kind) && (
                 <div className="options">
@@ -329,13 +335,13 @@ export function QuestionCard({
                         checked={draft.confirmed === value}
                         onChange={() => change((d) => ({ ...d, confirmed: value }))}
                       />
-                      {value ? '确认' : '拒绝'}
+                      {value ? text('确认') : text('拒绝')}
                     </label>
                   ))}
                 </div>
               )}
               <label className="input-label" htmlFor={`${q.id}-text`}>
-                {q.kind === 'text' ? '填写答复' : '补充说明（选填）'}
+                {q.kind === 'text' ? text('填写答复') : text('补充说明（选填）')}
               </label>
               <textarea
                 id={`${q.id}-text`}
@@ -346,16 +352,20 @@ export function QuestionCard({
                   const text = e.target.value;
                   change((d) => ({ ...d, text }));
                 }}
-                placeholder="写下你的意见…"
+                placeholder={text('写下你的意见…')}
               />
             </fieldset>
             <div className="form-footer">
-              <span className="muted">草稿已保留，仅在点击提交后发送</span>
+              <span className="muted">{text('草稿已保留，仅在点击提交后发送')}</span>
               <button
                 className="primary"
                 disabled={!!draft.sending || changed || (!draft.attempt && !valid)}
               >
-                {draft.sending ? '正在提交…' : draft.attempt ? '重试提交' : '提交答复'}
+                {draft.sending
+                  ? text('正在提交…')
+                  : draft.attempt
+                    ? text('重试提交')
+                    : text('提交答复')}
               </button>
             </div>
             {draft.error && (
@@ -367,16 +377,22 @@ export function QuestionCard({
         )}
         {q.answer && (
           <div className="answer-receipt">
-            <b>你的答复</b>
+            <b>{text('你的答复')}</b>
             <p className="preserve">
               {q.options
                 .filter((o) => q.answer!.selected.includes(o.id))
                 .map((o) => o.label)
-                .join('、')}
-              {q.answer.confirmed === undefined ? '' : q.answer.confirmed ? '确认' : '拒绝'}
+                .join(locale === 'zh-CN' ? '、' : ', ')}
+              {q.answer.confirmed === undefined
+                ? ''
+                : q.answer.confirmed
+                  ? text('确认')
+                  : text('拒绝')}
               {q.answer.text && `\n${q.answer.text}`}
             </p>
-            <span className="muted">接收于 {time(q.answer.received_at)}</span>
+            <span className="muted">
+              {text('接收于')} {time(q.answer.received_at)}
+            </span>
             <details
               onToggle={(e) => {
                 if (e.currentTarget.open && !evidence)
@@ -385,27 +401,29 @@ export function QuestionCard({
                     .catch((error) => setEvidenceError(errorText(error)));
               }}
             >
-              <summary>查看提交时的说明</summary>
+              <summary>{text('查看提交时的说明')}</summary>
               {evidence ? (
                 <>
                   <p className="preserve">
-                    {evidence.snapshot.question.description || '没有补充文字说明。'}
+                    {evidence.snapshot.question.description || text('没有补充文字说明。')}
                   </p>
                   {evidence.snapshot.artifacts.map((a) => (
                     <ArtifactView key={a.id} artifact={a} submission={q.answer!.submission_id} />
                   ))}
                 </>
               ) : (
-                <p>{evidenceError || '正在读取…'}</p>
+                <p>{evidenceError || text('正在读取…')}</p>
               )}
             </details>
           </div>
         )}
         {q.result && (
           <div className="handled-result">
-            <b>处理说明</b>
+            <b>{text('处理说明')}</b>
             <p className="preserve">{q.result}</p>
-            <time>处理时间 {time(q.updated_at)}</time>
+            <time>
+              {text('处理时间')} {time(q.updated_at)}
+            </time>
           </div>
         )}
       </div>
@@ -473,7 +491,7 @@ function TaskDetails({
     }
   }
   return (
-    <section className="task-details" aria-label="任务详情">
+    <section className="task-details" aria-label={text('任务详情')}>
       <header className="detail-heading">
         <button type="button" className="back-button" onClick={close}>
           <svg
@@ -487,24 +505,25 @@ function TaskDetails({
           >
             <path d="M15 6l-6 6 6 6" />
           </svg>
-          返回看板
+
+          {text('返回看板')}
         </button>
         <span className={`status ${task.state}`}>{labels[task.state]}</span>
         <h1 title={task.title}>{task.title}</h1>
-        {needsReply && <span className="needs-answer">待回复</span>}
+        {needsReply && <span className="needs-answer">{text('待回复')}</span>}
         <span className="detail-owner mono" title={task.id}>
-          T-{shortId(task.id)} · {latest?.name || latest?.sid || '未指派'}
+          T-{shortId(task.id)} · {latest?.name || latest?.sid || text('未指派')}
         </span>
       </header>
       <div className="detail-body">
         <section className="detail-description">
           <div>
-            <h2>任务说明</h2>
-            <p className="preserve">{task.description || '暂无说明'}</p>
+            <h2>{text('任务说明')}</h2>
+            <p className="preserve">{task.description || text('暂无说明')}</p>
           </div>
           {task.acceptance && (
             <div>
-              <h2>验收条件</h2>
+              <h2>{text('验收条件')}</h2>
               <p className="preserve">{task.acceptance}</p>
             </div>
           )}
@@ -513,7 +532,7 @@ function TaskDetails({
           ))}
           {task.state === 'blocked' && latest?.report && (
             <div className="blocked-reason">
-              <h2>阻塞原因</h2>
+              <h2>{text('阻塞原因')}</h2>
               <p className="preserve">{latest.report.message}</p>
             </div>
           )}
@@ -521,7 +540,7 @@ function TaskDetails({
         <aside className="execution-history">
           <div className="history-heading">
             <h2>
-              执行记录 <span className="mono">{task.run_count || 0}</span>
+              {text('执行记录')} <span className="mono">{task.run_count || 0}</span>
             </h2>
             {loaded?.next != null && (
               <button
@@ -530,22 +549,22 @@ function TaskDetails({
                 disabled={loadingMore}
                 onClick={() => void more()}
               >
-                {loadingMore ? '正在读取…' : '加载更早记录'}
+                {loadingMore ? text('正在读取…') : text('加载更早记录')}
               </button>
             )}
           </div>
-          {task.runs.length === 0 && <p className="muted">尚未派发给小队成员。</p>}
+          {task.runs.length === 0 && <p className="muted">{text('尚未派发给小队成员。')}</p>}
           {(loaded?.task.runs || task.runs).map((r) => (
             <section className="run" key={r.command_id}>
               <time title={time(r.created_at)}>{clockTime(r.created_at)}</time>
               <div>
                 <b>{r.name || r.sid}</b>
                 <span className="run-state">
-                  {r.work.state === 'accepted' ? '已接单' : labels[r.work.state as TaskState]}
+                  {r.work.state === 'accepted' ? text('已接单') : labels[r.work.state as TaskState]}
                 </span>
                 <p className="preserve">{r.message}</p>
                 {r.work.cancel_requested_at && (
-                  <p className="notice">已请求取消，执行终态以成员报告为准。</p>
+                  <p className="notice">{text('已请求取消，执行终态以成员报告为准。')}</p>
                 )}
                 {r.report && <p className="preserve report">{r.report.message}</p>}
                 <code title={r.command_id}>{r.command_id}</code>
@@ -559,7 +578,7 @@ function TaskDetails({
           )}
           {latest?.report && (
             <section className="latest-report">
-              <h2>最近报告</h2>
+              <h2>{text('最近报告')}</h2>
               <div>
                 <time>
                   {time(latest.report.at)} · {latest.name || latest.sid}
@@ -569,7 +588,7 @@ function TaskDetails({
             </section>
           )}
           <p className="execution-note">
-            派发、编辑与取消由指挥官工具完成，看板不提供拖动改状态的入口。
+            {text('派发、编辑与取消由指挥官工具完成，看板不提供拖动改状态的入口。')}
           </p>
         </aside>
       </div>
@@ -604,7 +623,7 @@ export function CommanderMessage({
       const receipt = await api<UserMessageReceipt>('/api/messages', attempt);
       change(() => ({
         text: '',
-        notice: `已发送 · ${time(receipt.received_at)}，等待指挥官读取。`,
+        notice: `${text('已发送 ·')} ${time(receipt.received_at)}${text('，等待指挥官读取。')}`,
       }));
     } catch (e) {
       const definitive =
@@ -628,13 +647,13 @@ export function CommanderMessage({
         void submit();
       }}
     >
-      <label htmlFor="commander-message">向指挥官留言（不直接修改任务）</label>
+      <label htmlFor="commander-message">{text('向指挥官留言（不直接修改任务）')}</label>
       <div className="message-input-row">
         <input
           id="commander-message"
           value={draft.text}
           maxLength={8000}
-          placeholder="例如：把异常场景回归提到最高优先级"
+          placeholder={text('例如：把异常场景回归提到最高优先级')}
           disabled={!!draft.attempt || squad.status === 'dissolved'}
           onChange={(e) => {
             const text = e.target.value;
@@ -642,11 +661,11 @@ export function CommanderMessage({
           }}
         />
         <button disabled={!!draft.sending || !draft.text.trim() || squad.status === 'dissolved'}>
-          {draft.sending ? '发送中…' : draft.attempt ? '重试发送' : '发送'}
+          {draft.sending ? text('发送中…') : draft.attempt ? text('重试发送') : text('发送')}
         </button>
       </div>
       {draft.notice && <p role="status">{draft.notice}</p>}
-      {squad.status === 'dissolved' && <p>小队已关闭，无法发送留言。</p>}
+      {squad.status === 'dissolved' && <p>{text('小队已关闭，无法发送留言。')}</p>}
     </form>
   );
 }
@@ -654,12 +673,12 @@ export function CommanderMessage({
 function SquadDock({ current }: { current: DashboardSnapshot }) {
   const [tab, setTab] = useState('members');
   return (
-    <section className="squad-dock" aria-label="成员与活动">
+    <section className="squad-dock" aria-label={text('成员与活动')}>
       <div className="dock-heading">
         <div
           className="tabs"
           role="tablist"
-          aria-label="成员与活动"
+          aria-label={text('成员与活动')}
           onKeyDown={(e) => {
             if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
               e.preventDefault();
@@ -677,8 +696,8 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
           }}
         >
           {[
-            ['members', '小队成员', current.members.length],
-            ['activity', '活动记录', current.activity.length],
+            ['members', text('小队成员'), current.members.length],
+            ['activity', text('活动记录'), current.activity.length],
           ].map(([id, label, count]) => (
             <button
               role="tab"
@@ -697,8 +716,8 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
         </div>
         <span className="dock-hint">
           {tab === 'members'
-            ? '连接与监听状态不代表任务已接单'
-            : '最近 40 条活动 · 任务和答复独立保存'}
+            ? text('连接与监听状态不代表任务已接单')
+            : text('最近 40 条活动 · 任务和答复独立保存')}
         </span>
       </div>
       <div
@@ -712,12 +731,12 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
           <table className="members-table">
             <thead>
               <tr>
-                <th>成员</th>
-                <th>连接</th>
-                <th>自动响应</th>
-                <th>未完成</th>
-                <th>当前任务 · 接单</th>
-                <th>最近报告</th>
+                <th>{text('成员')}</th>
+                <th>{text('连接')}</th>
+                <th>{text('自动响应')}</th>
+                <th>{text('未完成')}</th>
+                <th>{text('当前任务 · 接单')}</th>
+                <th>{text('最近报告')}</th>
               </tr>
             </thead>
             <tbody>
@@ -727,14 +746,14 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
                     const task = current.tasks.find((t) =>
                       t.runs.some((r) => r.command_id === c.id || r.blocked_by === c.id),
                     );
-                    return `${task?.title || '协作任务'} · ${c.state === 'accepted' ? '已接单' : labels[c.state as TaskState] || '状态未知'}${c.cancel_requested_at ? ' · 等待取消确认' : ''}`;
+                    return `${task?.title || text('协作任务')} · ${c.state === 'accepted' ? text('已接单') : labels[c.state as TaskState] || text('状态未知')}${c.cancel_requested_at ? ' ' + text('· 等待取消确认') : ''}`;
                   })
-                  .join('；');
+                  .join(locale === 'zh-CN' ? '；' : '; ');
                 const listening = m.listener.can_auto_respond
-                  ? '监听健康'
+                  ? text('监听健康')
                   : m.listener.wake_mode === 'manual'
-                    ? '手动继续'
-                    : listenerLabels[m.listener.health] || '状态未知';
+                    ? text('手动继续')
+                    : listenerLabels[m.listener.health] || text('状态未知');
                 return (
                   <tr key={m.member_id}>
                     <td title={`${m.name || m.agent} · ${m.agent}`}>
@@ -742,10 +761,10 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
                         <strong>{m.name || m.agent}</strong>
                         <small>
                           {m.role === 'commander'
-                            ? '指挥官'
+                            ? text('指挥官')
                             : m.role === 'executor'
-                              ? '执行者'
-                              : '已离队'}{' '}
+                              ? text('执行者')
+                              : text('已离队')}{' '}
                           · {m.agent}
                         </small>
                       </div>
@@ -753,10 +772,11 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
                     <td>
                       <span className={`connection ${m.presence === 'online' ? 'online' : ''}`}>
                         {(
-                          { online: '在线', offline: '离线', cli: '命令行连接' } as Record<
-                            string,
-                            string
-                          >
+                          {
+                            online: text('在线'),
+                            offline: text('离线'),
+                            cli: text('命令行连接'),
+                          } as Record<string, string>
                         )[m.presence] || m.presence}
                       </span>
                     </td>
@@ -776,14 +796,17 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
                     </td>
                     <td className="mono">{m.commands.length}</td>
                     <td>
-                      <span className="truncate" title={commands || '暂无任务'}>
+                      <span className="truncate" title={commands || text('暂无任务')}>
                         {commands || '—'}
                       </span>
                     </td>
                     <td>
-                      <div className="member-report" title={m.last_status?.message || '暂无记录'}>
+                      <div
+                        className="member-report"
+                        title={m.last_status?.message || text('暂无记录')}
+                      >
                         <time>{m.last_progress_at ? time(m.last_progress_at) : '—'}</time>
-                        <span>{m.last_status?.message || '暂无记录'}</span>
+                        <span>{m.last_status?.message || text('暂无记录')}</span>
                       </div>
                     </td>
                   </tr>
@@ -799,10 +822,10 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
                 <strong>
                   {eventLabels[e.kind] ||
                     (e.kind.startsWith('wake.')
-                      ? '唤醒状态更新'
+                      ? text('唤醒状态更新')
                       : e.kind.startsWith('standby.')
-                        ? '监听状态更新'
-                        : '小队更新')}
+                        ? text('监听状态更新')
+                        : text('小队更新'))}
                 </strong>
                 <span title={e.message}>{e.message || '—'}</span>
               </article>
@@ -810,7 +833,9 @@ function SquadDock({ current }: { current: DashboardSnapshot }) {
           </div>
         )}
         {(tab === 'members' ? !current.members.length : !current.activity.length) && (
-          <p className="dock-empty">{tab === 'members' ? '暂无小队成员' : '暂无活动记录'}</p>
+          <p className="dock-empty">
+            {tab === 'members' ? text('暂无小队成员') : text('暂无活动记录')}
+          </p>
         )}
       </div>
     </section>
@@ -921,10 +946,14 @@ export function App() {
       .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)) || [];
   const pending = current?.questions.filter((q) => q.status === 'pending').length || 0;
   const columns: { title: string; hint: string; states: TaskState[] }[] = [
-    { title: '计划', hint: '待派发', states: ['planned'] },
-    { title: '待接单', hint: '含已读', states: ['queued', 'read'] },
-    { title: '进行中', hint: '含阻塞', states: ['working', 'blocked'] },
-    { title: '已结束', hint: '完成 / 失败 / 取消', states: ['completed', 'failed', 'cancelled'] },
+    { title: text('计划'), hint: text('待派发'), states: ['planned'] },
+    { title: text('待接单'), hint: text('含已读'), states: ['queued', 'read'] },
+    { title: text('进行中'), hint: text('含阻塞'), states: ['working', 'blocked'] },
+    {
+      title: text('已结束'),
+      hint: text('完成 / 失败 / 取消'),
+      states: ['completed', 'failed', 'cancelled'],
+    },
   ];
   const questions = [...(current?.questions || [])].sort(
     (a, b) =>
@@ -935,16 +964,16 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand" aria-label="cmdr 看板">
+        <div className="brand" aria-label={text('cmdr 看板')}>
           <span className="brand-mark">c</span>
           <span>
-            cmdr<small>小队工作台</small>
+            cmdr<small>{text('小队工作台')}</small>
           </span>
         </div>
         <div className="nav-label">
-          我的小队 <span className="mono">{overview?.squads.length || 0}</span>
+          {text('我的小队')} <span className="mono">{overview?.squads.length || 0}</span>
         </div>
-        <nav aria-label="小队">
+        <nav aria-label={text('小队')}>
           {overview?.squads.map((q) => (
             <button
               key={q.id}
@@ -958,30 +987,33 @@ export function App() {
               <span className="squad-name">
                 {q.name || q.id}
                 {q.pending_questions > 0 && (
-                  <span className="count-alert" aria-label={`${q.pending_questions} 个待回复问题`}>
+                  <span
+                    className="count-alert"
+                    aria-label={`${q.pending_questions} ${text('个待回复问题')}`}
+                  >
                     {q.pending_questions}
                   </span>
                 )}
               </span>
               <small>
-                {q.active_tasks} 项执行中 ·{' '}
+                {q.active_tasks} {text('项执行中 ·')}{' '}
                 {q.status === 'dissolved'
-                  ? '已关闭'
+                  ? text('已关闭')
                   : q.status === 'orphaned'
-                    ? '等待指挥官'
-                    : '协作中'}
+                    ? text('等待指挥官')
+                    : text('协作中')}
               </small>
             </button>
           ))}
         </nav>
         <div className="sidebar-footer">
           <span className={`connection ${connected ? 'online' : ''}`}>
-            {connected ? '实时连接' : '连接中断 · 正在重连'}
+            {connected ? text('实时连接') : text('连接中断 · 正在重连')}
           </span>
           <span className="mono">LOCAL · {overview?.version || 'cmdr'}</span>
           <details>
-            <summary>当前数据目录</summary>
-            <code>{overview?.home || '尚未连接'}</code>
+            <summary>{text('当前数据目录')}</summary>
+            <code>{overview?.home || text('尚未连接')}</code>
           </details>
         </div>
       </aside>
@@ -993,7 +1025,7 @@ export function App() {
         )}
         {!connected && overview && (
           <p className="connection-notice" role="status">
-            连接中断，正在重连。显示的是最近一次内容。
+            {text('连接中断，正在重连。显示的是最近一次内容。')}
           </p>
         )}
         {activeTask ? (
@@ -1009,18 +1041,22 @@ export function App() {
         ) : (
           <>
             <header className="page-header">
-              <h1 title={squad?.name || '小队看板'}>{squad?.name || '小队看板'}</h1>
+              <h1 title={squad?.name || text('小队看板')}>{squad?.name || text('小队看板')}</h1>
               <span className="squad-code mono">{squad?.id}</span>
-              <span className="private-badge">本机私有</span>
-              <section className="metrics" aria-label="小队概览">
+              <span className="private-badge">{text('本机私有')}</span>
+              <section className="metrics" aria-label={text('小队概览')}>
                 {[
-                  ['看板任务', squad?.task_count],
-                  ['执行中', squad?.active_tasks],
-                  ['待你回复', squad?.pending_questions],
-                  ['成员', current?.members.length],
+                  [text('看板任务'), squad?.task_count],
+                  [text('执行中'), squad?.active_tasks],
+                  [text('待你回复'), squad?.pending_questions],
+                  [text('成员'), current?.members.length],
                 ].map(([label, value]) => (
                   <div key={label}>
-                    <b className={label === '待你回复' && Number(value) > 0 ? 'needs-answer' : ''}>
+                    <b
+                      className={
+                        label === text('待你回复') && Number(value) > 0 ? 'needs-answer' : ''
+                      }
+                    >
                       {value ?? '—'}
                     </b>
                     <span>{label}</span>
@@ -1033,20 +1069,24 @@ export function App() {
                   checked={showArchived}
                   onChange={(e) => setShowArchived(e.target.checked)}
                 />
-                查看已归档
+
+                {text('查看已归档')}
               </label>
             </header>
             {overview?.squads.length === 0 ? (
               <section className="empty-state">
-                <h2>还没有小队</h2>
-                <p>让指挥官加入小队并创建任务，进展和需要你回复的问题会出现在这里。</p>
+                <h2>{text('还没有小队')}</h2>
+                <p>{text('让指挥官加入小队并创建任务，进展和需要你回复的问题会出现在这里。')}</p>
               </section>
             ) : !current ? (
               <div className="loading" role="status">
-                正在读取小队…
+                {text('正在读取小队…')}
               </div>
             ) : (
-              <div className="kanban" aria-label={showArchived ? '已归档任务' : '任务看板'}>
+              <div
+                className="kanban"
+                aria-label={showArchived ? text('已归档任务') : text('任务看板')}
+              >
                 {columns.map((column) => {
                   const items = tasks.filter((t) => column.states.includes(t.state));
                   return (
@@ -1057,7 +1097,7 @@ export function App() {
                         <small className="mono">{items.length}</small>
                       </h2>
                       <div className="column-items">
-                        {!items.length && <p className="column-empty">暂无任务</p>}
+                        {!items.length && <p className="column-empty">{text('暂无任务')}</p>}
                         {items.map((t) => {
                           const needsReply = questions.some(
                             (q) => q.task_id === t.id && q.status === 'pending',
@@ -1070,12 +1110,14 @@ export function App() {
                             >
                               <span className="task-badges">
                                 <span className={`status ${t.state}`}>{labels[t.state]}</span>
-                                {needsReply && <span className="needs-answer">待回复</span>}
+                                {needsReply && (
+                                  <span className="needs-answer">{text('待回复')}</span>
+                                )}
                               </span>
                               <h3>{t.title}</h3>
                               {t.description && <p title={t.description}>{t.description}</p>}
                               <span className="task-owner">
-                                {t.runs.at(-1)?.name || t.runs.at(-1)?.sid || '未指派'}
+                                {t.runs.at(-1)?.name || t.runs.at(-1)?.sid || text('未指派')}
                               </span>
                             </button>
                           );
@@ -1090,25 +1132,25 @@ export function App() {
         )}
         {current && <SquadDock current={current} />}
       </main>
-      <aside className="confirmation-panel" aria-label="待确认事项">
+      <aside className="confirmation-panel" aria-label={text('待确认事项')}>
         <header className="confirmation-heading">
-          <h2>待确认事项</h2>
+          <h2>{text('待确认事项')}</h2>
           <span>
-            待你回复 {pending} · 待处理 {squad?.unanswered_decisions || 0}
+            {text('待你回复')} {pending} {text('· 待处理')} {squad?.unanswered_decisions || 0}
           </span>
         </header>
         <div className="questions">
           {!pending && (
             <div className="questions-empty">
-              <p>没有需要你决定的事情</p>
-              <small>新的问题会出现在这里，并在侧栏计数</small>
+              <p>{text('没有需要你决定的事情')}</p>
+              <small>{text('新的问题会出现在这里，并在侧栏计数')}</small>
             </div>
           )}
           {questions.map((q) => {
             const key = `${q.squad_id}/${q.id}`;
             return (
               <Fragment key={key}>
-                {q.id === firstOther && <h3 className="other-questions">其他事项</h3>}
+                {q.id === firstOther && <h3 className="other-questions">{text('其他事项')}</h3>}
                 <QuestionCard
                   q={q}
                   draft={drafts[key] || emptyDraft(q)}

@@ -6,6 +6,10 @@ import { App, CommanderMessage, QuestionCard, type Draft } from '../src/dashboar
 import { refreshQueue } from '../src/dashboard/refresh.js';
 import type { Question, SquadSummary } from '../src/shared/dashboard.js';
 
+vi.hoisted(() => {
+  Object.defineProperty(navigator, 'languages', { configurable: true, value: ['zh-CN'] });
+});
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
