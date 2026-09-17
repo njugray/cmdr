@@ -1,6 +1,6 @@
 # Implementation and verification
 
-This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.2.0**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.3.0**, internal protocol **1**.
 
 ## Delivered behavior
 
@@ -88,7 +88,7 @@ A read-only probe of the installed Codex CLI 0.153.4 confirmed that this desktop
 
 Review regression verification for 0.2.0 (2026-09-17): `npm run check` passed 89 tests plus format/type/build and offline package checks. Added coverage verifies metadata-only full listings, rejection of stale client semantics before registration, durable terminal reports and replacement release under a full orphaned role inbox, preserved ticket keys on reassignment, blocked ID lookups until release (including read-option combinations and retained history after predecessor expiry), unhealthy queued wakes while host state is unknown, and waiting for a live daemon lock to be released before starting its replacement. Daemon shutdown closes its server before returning lock ownership. `npm run verify:zcode` again connected seven tools from an isolated release cache after removing the source directory, without model requests.
 
-## Automatic wake iteration — issues #7, #8 and #9
+## 0.3.0 automatic wake iteration — issues #7, #8 and #9
 
 This iteration is isolated on `feat/host-auto-wake`, based directly on `main` (`5368e52`). Standalone setup/skills installation remains on its separate branch. The reported host mechanisms are implemented as follows:
 
@@ -115,3 +115,5 @@ Verification of the independent branch on 2026-09-17 (macOS, Node 24.16.0):
 - Local Codex CLI 0.153.4 exposes queue --thread/--message. The issue's historical end-to-end queue success is retained as field evidence; this iteration did not re-submit into a user's real desktop thread. Claude Monitor and ZCode background-task re-invocation likewise have the issue authors' live PoC evidence; automated watcher tests do not claim a new live-model GUI verification.
 
 Outstanding host acceptance is the real idle→notification→read→working→done loop in refreshed Codex, Claude and ZCode sessions, including a busy-turn backlog and watcher re-arm after native task expiry. Use a disposable channel/workspace and inspect tail/list for acceptance; tool/CLI availability alone is not the success criterion. No normal ~/.cmdr state, installed plugin cache or host trust settings were changed during verification.
+
+Release preparation for 0.3.0 synchronizes npm and host manifests and injects the package version into Vitest, matching the production build so process tests validate the released version rather than the minimum compatible client version. The release is prepared from merged PR #10 in a clean worktree.
