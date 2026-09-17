@@ -78,10 +78,10 @@ Joining by name atomically creates or finds a persistent channel and defaults to
 2. The commander inspects `list`, then `send`s clear tasks with acceptance criteria.
 3. Executors `read`, immediately acknowledge with `report(status="working", reply_to=<command id>)`, do the work, then report done/failed/cancelled with the same `reply_to`.
 4. Executors use `ask` when blocked; the commander responds with `send(type="answer", reply_to=<ask id>)`.
-5. Use `join(..., standby="auto")`, then inspect `list` for listener health. With `can_auto_respond=true`, end the idle turn. Unsupported hosts remain manual; the skills bound fallback polling to two waits and explain manual continuation.
+5. Use `join(..., standby="auto")`. Claude/ZCode then arm `listener.arm.command` with its indicated native tool. Inspect `list` for listener health. With `can_auto_respond=true`, end the idle turn. Unsupported hosts remain manual; the skills bound fallback polling to two waits and explain manual continuation.
 6. `leave` preserves queued messages. Commander departure orphans the squad; `leave(dissolve=true)` disbands it.
 
-cmdr connects existing sessions and never creates agents. The opt-in Codex adapter uses the shared app-server public transport for managed wakeup. Claude, ZCode and other hosts currently report `wake_mode=manual`. See [Long-running collaboration](docs/long-running-collaboration.md) for capabilities, recovery, handover and compatibility requirements.
+Codex wakes through app-server proxy or the `codex queue` fallback. Claude uses Monitor and ZCode uses background Bash completion through the built-in `cmdr standby watch`; re-arm after task termination. See [Long-running collaboration](docs/long-running-collaboration.md) for capabilities, recovery, handover and compatibility requirements.
 
 ## Tools
 
@@ -160,6 +160,6 @@ npm run verify:zcode   # optional: requires the locally installed ZCode desktop 
 
 For development, `claude --plugin-dir ./plugins/cmdr` loads the plugin directly. Installed hosts use cached copies: reinstall/refresh after changing a plugin. Version numbers come from `package.json`; after same-version changes, restart the daemon explicitly. Generated bundles and third-party license notices are ignored by Git and included in the npm package.
 
-v1 is single-machine, single-user, Unix-socket-only. There is no network listener, remote transport, automatic Agent launching or executor-to-executor messaging. Host GUI interaction and live model behavior are distinct from the automated runtime checks; see the [verification record](docs/implementation.md).
+v1 is single-machine, single-user, Unix-socket-only. There is no network listener, remote transport or executor-to-executor messaging. Agent session creation is outside the current scope. Host GUI interaction and live model behavior are distinct from the automated runtime checks; see the [verification record](docs/implementation.md).
 
 [MIT](LICENSE)

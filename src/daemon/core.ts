@@ -1,3 +1,4 @@
+import { actionable, wakeEvent, hostStandby, armHint } from '../shared/wake.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,7 +42,7 @@ export interface Context {
   closed?: boolean;
   version?: string;
   client?: string;
-  tail?: { squad?: string; for?: string; full?: boolean; after: number };
+  tail?: { squad?: string; for?: string; full?: boolean; actionable?: boolean; after: number };
   notify: (method: string, params: unknown) => void;
 }
 interface Waiter {
@@ -148,14 +149,21 @@ export class Core {
       members: this.members(q.id).map((s) => this.view(s)),
     };
   }
-  private standbyView(sid: string) {
+  standbyView(sid: string) {
     const standby = this.store.standby(sid);
     return standby
       ? {
           sid: standby.sid,
           wake_mode: standby.wake_mode,
           enabled: standby.enabled,
-          health: standby.health,
+          health:
+            hostStandby(standby.wake_mode) &&
+            standby.health === 'healthy' &&
+            (!standby.lease || standby.lease.expires_at <= Date.now())
+              ? 'stalled'
+              : standby.health,
+          transport: standby.transport,
+          arm: armHint(standby),
           host_state: standby.host_state,
           checked_at: standby.checked_at,
           error: standby.error,
@@ -167,7 +175,10 @@ export class Core {
               }
             : undefined,
           can_auto_respond:
-            standby.enabled && standby.wake_mode !== 'manual' && standby.health === 'healthy',
+            standby.enabled &&
+            standby.wake_mode !== 'manual' &&
+            standby.health === 'healthy' &&
+            (!hostStandby(standby.wake_mode) || (standby.lease?.expires_at || 0) > Date.now()),
         }
       : { wake_mode: 'manual', health: 'manual', can_auto_respond: false };
   }
@@ -180,6 +191,19 @@ export class Core {
     ]
       .filter((m) => history || !m.blocked_by || terminalWork(this.store.message(m.blocked_by)!))
       .sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+  }
+  actionable(sid: string): Message[] {
+    const session = this.store.session(sid) || fail('NOT_JOINED');
+    return [
+      ...new Map(
+        [
+          ...this.inbox(session).filter((m) => actionable(m, sid)),
+          ...this.store
+            .commands(sid)
+            .filter((m) => !m.blocked_by || terminalWork(this.store.message(m.blocked_by))),
+        ].map((m) => [m.id, m]),
+      ).values(),
+    ];
   }
   private view(s: Session, full = false, commandSquad?: string) {
     const commands = this.store
@@ -257,6 +281,7 @@ export class Core {
           )
         )
           continue;
+        if (t.actionable && !this.isWakeEvent(event, t.for)) continue;
         c.notify(
           'lifecycle.event',
           t.full
@@ -269,6 +294,12 @@ export class Core {
               },
         );
       }
+  }
+  private isWakeEvent(event: LifecycleEvent, sid?: string) {
+    return (
+      wakeEvent(event, sid) &&
+      (!event.message?.blocked_by || terminalWork(this.store.message(event.message.blocked_by)))
+    );
   }
   private atomic<T>(fn: () => T): T {
     const cursor = this.store.eventCursor();
@@ -488,6 +519,7 @@ export class Core {
       reply_to?: string;
       attn?: boolean;
       operator?: boolean;
+      direct?: boolean;
       terminalAck?: boolean;
     } = {},
   ) {
@@ -514,6 +546,7 @@ export class Core {
       reply_to: opts.reply_to || null,
       status: 'queued',
       attn: opts.attn ?? ['command', 'cancel', 'ask', 'answer'].includes(type),
+      direct: opts.direct,
       created_at: Date.now(),
       delivered_at: null,
     };
@@ -691,7 +724,7 @@ export class Core {
           ? `Squad ${q.id}${q.name ? ` (${q.name})` : ''} is ready. Paste this into each other session:\n${join_prompt}`
           : `Joined squad ${q.id}${s.name ? ` as ${s.name}` : ''}; report ready and wait for commands.`,
       standby: this.standbyView(s.sid),
-      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Check list before reassignment: offline never means work stopped. Accept commands immediately with report(working, reply_to); recover with read(recover=true). Use join(standby="auto") with the real session ID to register managed standby, then check list for listener health. If me.listener.can_auto_respond, end the turn; otherwise use at most two read(wait=${wait}) calls and explain that manual continuation is required. Never write a private wake listener. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
+      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Check list before reassignment: offline never means work stopped. Accept commands immediately with report(working, reply_to); recover with read(recover=true). Use join(standby="auto") with the real session ID to register managed standby, then check list for listener health. For Claude/ZCode, run listener.arm.command with its indicated host tool before ending the turn, and re-arm after task termination. If me.listener.can_auto_respond, end the turn; otherwise use at most two read(wait=${wait}) calls and explain that manual continuation is required. Use the built-in standby watcher; do not write a private listener. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
     };
   }
   private leave(ctx: Context, p: any) {
@@ -884,6 +917,7 @@ export class Core {
         reply_to: p.reply_to,
         data: p.data,
         attn: p.attention,
+        direct: !(Array.isArray(p.to) ? p.to : [p.to]).includes('all'),
         operator: ctx.kind === 'cli',
       });
       if (p.type === 'command') {
@@ -1174,8 +1208,13 @@ export class Core {
         s.last_stop_block_seq = attn;
       }
     } else if (p.event === 'SessionStart' && s.role !== 'none') {
+      const listener = this.store.standby(s.sid);
+      const rearm =
+        listener?.enabled && hostStandby(listener.wake_mode)
+          ? 'Check list.listener.arm; re-arm the host watcher if its task stopped. '
+          : '';
       result.inject =
-        `[cmdr] Context restored: ${s.role} in squad ${s.squad_id}. ${s.role === 'commander' ? 'Send tasks; answer asks with reply_to.' : 'Report progress with reply_to; ask when blocked.'} Read(wait=${this.waitHint(s)}). ${summary}`.slice(
+        `[cmdr] ${rearm}Context restored: ${s.role} in squad ${s.squad_id}. ${s.role === 'commander' ? 'Send tasks; answer asks with reply_to.' : 'Report progress with reply_to; ask when blocked.'} Read(wait=${this.waitHint(s)}). ${summary}`.slice(
           0,
           300,
         );
@@ -1282,6 +1321,7 @@ export class Core {
             kind: c.kind,
             version: c.version,
             client: c.client,
+            observing: c.tail ? { for: c.tail.for, squad: c.tail.squad } : undefined,
           })),
           listeners: this.store.standbys().map((s) => this.standbyView(s.sid)),
         };
@@ -1297,7 +1337,11 @@ export class Core {
       }
       if (method === 'admin.tail' || method === 'admin.events') {
         const after =
-          params.after === undefined ? Math.max(0, this.store.eventCursor() - 20) : params.after;
+          params.after === 'now' || (params.after === undefined && method === 'admin.tail')
+            ? this.store.eventCursor()
+            : params.after === undefined
+              ? Math.max(0, this.store.eventCursor() - 20)
+              : params.after;
         if (!Number.isSafeInteger(after) || after < 0)
           fail('INVALID_ARGUMENT', 'after must be a nonnegative event_seq');
         const high = this.store.eventCursor();
@@ -1318,16 +1362,28 @@ export class Core {
             : candidates.map((e) => ({
                 ...e,
                 message: e.message
-                  ? { ...e.message, body: e.message.body.slice(0, 160), data: null }
+                  ? {
+                      ...e.message,
+                      body: e.message.body.slice(0, 160),
+                      data: null,
+                    }
                   : undefined,
               })),
           100,
         );
         const next = events.length < candidates.length ? events[events.length - 1].event_seq : high;
         if (method === 'admin.tail')
-          ctx.tail = { squad: params.squad, for: params.for, full: params.full, after: high };
+          ctx.tail = {
+            squad: params.squad,
+            for: params.for,
+            full: params.full,
+            actionable: params.actionable,
+            after: high,
+          };
         return {
-          events,
+          events: params.actionable
+            ? events.filter((e) => this.isWakeEvent(e, params.for))
+            : events,
           next,
           high,
           gap: after < this.store.eventFloor(),
@@ -1403,7 +1459,7 @@ export class Core {
       return this.envelope(ctx, {
         ...result,
         standby: this.required(ctx).native_id
-          ? this.configureStandby(ctx.sid!, p.standby)
+          ? (this.configureStandby(ctx.sid!, p.standby), this.standbyView(ctx.sid!))
           : {
               wake_mode: 'manual',
               health: 'manual',

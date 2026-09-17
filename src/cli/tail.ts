@@ -2,7 +2,9 @@ import { daemonConnection } from '../shared/client.js';
 import type { LifecycleEvent } from '../shared/protocol.js';
 
 export async function tail(options: {
-  after?: number;
+  after?: number | 'now';
+  actionable?: boolean;
+  line?: boolean;
   for?: string;
   squad?: string;
   full?: boolean;
@@ -19,11 +21,13 @@ export async function tail(options: {
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   const show = (event: LifecycleEvent) => {
-    if (after !== undefined && event.event_seq <= after) return;
+    if (typeof after === 'number' && event.event_seq <= after) return;
     process.stdout.write(
       options.json
         ? JSON.stringify(event) + '\n'
-        : `${event.event_seq} ${new Date(event.at).toISOString()} ${event.channel || '-'} ${event.kind} ${event.from_sid || '-'} → ${event.to_sid || '-'} ${event.message_id || ''}${event.reply_to ? ` reply_to=${event.reply_to}` : ''}${event.reason ? ` ${event.reason}` : ''}${event.message ? ` ${event.message.body.replace(/\s+/g, ' ')}` : ''}\n`,
+        : options.line
+          ? `[cmdr] ${event.message?.type || event.kind} id=${event.message_id || '-'} from=${event.from_sid || '-'}${event.reply_to ? ` reply_to=${event.reply_to}` : ''}; call read and read(recover=true)\n`
+          : `${event.event_seq} ${new Date(event.at).toISOString()} ${event.channel || '-'} ${event.kind} ${event.from_sid || '-'} → ${event.to_sid || '-'} ${event.message_id || ''}${event.reply_to ? ` reply_to=${event.reply_to}` : ''}${event.reason ? ` ${event.reason}` : ''}${event.message ? ` ${event.message.body.replace(/\s+/g, ' ')}` : ''}\n`,
     );
     after = event.event_seq;
   };
@@ -52,7 +56,7 @@ export async function tail(options: {
         }
         for (;;) {
           for (const event of result.events) show(event);
-          after = Math.max(after || 0, result.next);
+          after = Math.max(typeof after === 'number' ? after : 0, result.next);
           if (result.next >= result.high) break;
           result = await rpc.request('admin.events', { ...options, after });
         }

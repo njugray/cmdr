@@ -53,33 +53,70 @@ On startup or after a wake, use ordinary `read` and `read(recover=true)`. Recove
 
 `read` omits squad_summary by default; `list` omits repeated member boards and detailed session fields. Listings never include command bodies, including with full=true. Use read(id=...) for your own messages, or operator tail --full for observation. Use `full=true` / `--full` for expanded metadata and `limit` / `--limit` to bound reads. Do not pipe a consuming read into head: output lost after delivery is recoverable through history/ID lookup, but is no longer unread.
 
-## Managed standby
+## Automatic standby
+
+`join(standby="auto")` requires a confirmed native identity and channel membership. Inspect `list` afterwards. A successful join registers intent; `can_auto_respond=true` requires a healthy delivery adapter or a live host watcher. Unknown hosts remain manual.
+
+| Host | Wake mechanism | What the Agent must do |
+| --- | --- | --- |
+| Codex | Daemon attaches through app-server proxy; falls back to `codex queue` when proxy is unavailable | Join with auto, check health, end the idle turn |
+| Claude Code | Native Monitor emits a notification for each watcher output line | Run `listener.arm.command` with Monitor; re-arm on expiry/exit |
+| ZCode desktop | Native background Bash re-invokes its session when the watcher exits | Run `listener.arm.command` with `run_in_background=true`; re-arm after each notification |
+
+All paths share the same actionable policy: command, cancel, ask, answer, system, terminal/blocked reports, attention-marked info and direct info. working/ready reports and broadcast info without attention are quiet. Commands gated by reassignment remain blocked. Observation does not consume messages or accept tasks. Every wake must be followed by `read` and `read(recover=true)`, cancellation handling, and correlated working/terminal reports.
+
+Report attention comes from the daemon's `attn` flag, computed at enqueue time. Default live and replayed events both omit `message.data`; do not filter those events by `data.status`. Use the built-in `--actionable` filter. `--full` includes the original data when needed. A quiet long-lived subscription does not itself indicate a stalled connection; periodic reconnects are unnecessary.
 
 ```sh
-cmdr standby start --session codex:REAL_THREAD_ID
-cmdr standby status --session codex:REAL_THREAD_ID
-cmdr standby stop --session codex:REAL_THREAD_ID
-cmdr standby resume --session codex:REAL_THREAD_ID
-# Optional explicit local host transport:
-cmdr standby start --session codex:REAL_THREAD_ID --adapter codex --executable /absolute/path/to/codex --socket /absolute/path/to/control.sock
+cmdr standby start --session SID
+cmdr standby status --session SID
+cmdr standby stop --session SID
+cmdr standby resume --session SID
 ```
 
-`join(standby="auto")` registers the same listener. It requires confirmed native identity and channel membership. There is one persisted listener per endpoint, executed by the existing single-instance daemon. Enabled listeners prevent idle daemon exit and recover on daemon restart. Stop disables future checks; it does not retract a wake already accepted by the host. `list`, `status` and `doctor` expose listener health and the latest request. No per-session lockfile, script or private host database parsing is required.
+### Codex: proxy and queue
 
-The built-in Codex adapter uses `codex app-server proxy` against the already running shared local host. It requires runtime support for `thread/read`, `thread/resume`, `thread/queue/list`, `thread/queue/add`, `thread/queue/start` and `thread/turns/list`, including client user-message IDs. The shared control socket must already be exposed by the host; a CLI installation alone is insufficient. Use --socket when the host exposes a nondefault local control socket. The listener never bootstraps a separate host daemon. These experimental queue methods are feature-checked through actual calls; older runtimes or unsupported endpoints show an error and do not claim automatic response. See the [official app-server reference](https://learn.chatgpt.com/docs/app-server) for the public transport and thread status APIs. Queue shapes were checked against this development machine's generated CLI protocol; this is not a claim of support in every Codex release.
+The proxy path connects `codex app-server proxy` to the already running host. It uses thread/read, thread/resume, thread/queue/list, thread/queue/add, thread/queue/start and thread/turns/list. A host that exposes these methods and the control socket can accept a stable client message ID and start that exact queued item. An unloaded thread is resumed in that same host. See the [official app-server reference](https://learn.chatgpt.com/docs/app-server) for the transport and state APIs; experimental queue shapes are checked against the installed CLI, not inferred from this reference.
 
-The adapter queues a metadata wake prompt for the registered existing thread, with a stable request ID, then asks the host to start that exact queued submission. An unloaded existing thread is resumed by its real ID through thread/resume, without supplying model, permission or sandbox overrides. It does not create threads or a separate app-server. Only actionable inbox messages and recoverable commands trigger a wake. working/ready reports and ordinary info do not; done/failed/blocked/cancelled/ask/answer/command do. Send `attention=true` for info that unblocks work. Busy sessions coalesce backlog, and urgent cancel is discovered at the next hook/tool checkpoint. No second competing model process is started.
+A missing socket now triggers a capability check for `codex queue --thread ID --message TEXT`. The queue path submits a metadata-only wake to the existing thread, without model, sandbox, approval or remote overrides. It does not explicitly launch a second app-server or call exec/resume to create a competing session. The CLI's internal transport remains host-owned.
 
-Wake stages are persisted before external calls: requested → accepted → observed. Host queue/history reconciliation distinguishes a lost response from a missing request. A request that might have succeeded is **not automatically resent**. Unknown outcomes show uncertain; accepted wakes with no progress show stalled. Errors are persisted and emitted as lifecycle events. After inspecting the host, the operator can explicitly resolve:
+The compatibility state reader requires Node >=22.12 (Node 24 recommended), because earlier node:sqlite versions lack the readOnly option. It opens `$CODEX_HOME/state_5.sqlite` read-only, resolves the exact thread's rollout_path and incrementally reads complete JSONL records. task_started means busy; task_complete/turn_aborted means idle. It scans the whole existing log once rather than a fixed tail window. Missing records, incompatible schema and unknown state prevent submission and produce concrete errors. This is a version-coupled fallback, not a stable public state API. The check-to-submit race is not atomic; the queue CLI must arbitrate a concurrent user turn.
+
+```sh
+# Automatic selection (default)
+cmdr standby start --session codex:REAL_ID --transport auto
+# Force a known path when diagnosing host capabilities
+cmdr standby start --session codex:REAL_ID --transport queue --executable /absolute/path/to/codex
+cmdr standby start --session codex:REAL_ID --transport proxy --socket /absolute/path/to/control.sock
+```
+
+Wake requests are persisted before delivery: requested → accepted → observed. An unresolved request pins its transport across restarts. Proxy reconciliation searches queue/history by client ID; queue reconciliation recognizes the stable `[cmdr wake UUID]` prefix only in user messages in the rollout. Queue exit 0 confirms submission but provides no queued item ID. Timeout/nonzero exit is uncertain, since delivery may already have happened. No cross-transport or automatic blind replay occurs. Accepted wakes with no progress become stalled. After inspecting the host and actual work:
 
 ```sh
 cmdr standby resume --session SID --resolve accepted
 cmdr standby resume --session SID --resolve retry
 ```
 
-`retry` explicitly permits a fresh wake; it is not evidence the previous attempt failed. After a completed host turn with changed but unfinished work, the listener can issue a recovery wake. Repeated notifications or listener restart do not independently create duplicate requests. Host acceptance is never task acceptance: only the command's correlated report confirms that.
+`retry` explicitly permits a new submission; it does not establish that the earlier one failed. Busy sessions coalesce backlog. Host acceptance remains separate from the command owner's working report.
 
-Claude, ZCode and other MCP hosts currently report manual. `can_auto_respond` is true only for an enabled healthy adapter. A queued host submission with unknown runtime state remains unhealthy with can_auto_respond=false; once idle is confirmed, the same submission can start without another enqueue. After registration, check list; starting is not confirmation. With a healthy listener, the model may end its idle turn. Otherwise the skill permits at most two recommended waits, then explains manual continuation. Never promise active wakeup based solely on hooks or a successful send.
+### Claude and ZCode: native host watchers
+
+Join/list returns `listener.arm` with an absolute installed command, the native host tool and re-arm instructions. The standard command is:
+
+```sh
+cmdr standby watch --session claude:REAL_ID
+cmdr standby watch --session zcode:REAL_ID
+```
+
+Claude uses its **Monitor tool**, not foreground Bash or shell `&`. Each stdout line becomes a native notification, queued into an active turn or opening an idle turn. The reporter's Monitor has a 30-minute lifetime; re-arm when the host reports expiry/exit. If Monitor is absent but the host supports background Bash completion notifications, use `--once` with `run_in_background=true`. If neither mechanism exists, explicitly select manual.
+
+ZCode uses **Bash with run_in_background=true**. Its native task survives the current turn and automatically re-invokes the session on completed/failed/killed. The built-in watcher remains silent during idle periods and exits after printing actionable metadata. It never consumes inbox messages, so a lost output notification still leaves the work available for recovery. On notification: inspect task output, read/recover, handle work, and re-arm. An immediate backlog produces an immediate notification; drain/reconcile it before re-arming.
+
+The command subscribes before inspecting current work, covering startup races, unread messages and read-but-unaccepted commands. At attach, accepted commands without pending cancellation are treated as already known: a blocked executor can re-arm and wait for an answer without repeatedly waking on its own unfinished task. Ownership and `read(recover=true)` remain unchanged; reconcile accepted work on startup or after context loss before arming. Unread answers, new commands and pending cancellation still notify, including cancellation requested after attach.
+
+It renews a 90-second daemon lease every 30 seconds. Exactly one lease owns a member; duplicate watchers are rejected. Only an attached live watcher is healthy. Disconnect removes its lease; a lost heartbeat expires it. A daemon restart closes the command so the host can notify and re-arm. App termination removes the native task; SessionStart reminds the Agent to inspect and re-arm it. A healthy lease establishes that the watcher is running, not that an individual model turn has already started.
+
+Check the host task status before re-arming. Stop disables the lease; its process exits at the next event/heartbeat, which itself may produce one last native notification. Skills do not impose the old two-wait limit when a native watcher is available. Bounded manual polling remains only for unsupported tools or failed arming. No repeating cron/model heartbeat is needed, and no PermissionRequest auto-approval is installed.
 
 ## Lifecycle observation
 
@@ -90,10 +127,12 @@ cmdr tail --for MEMBER_SID --after 123 --follow --json --full
 
 Events have monotonically increasing `event_seq`, timestamp, channel, kind, sender/recipient, message ID, reply_to and applicable reason/data. The stream covers enqueue/read, command acceptance/progress/terminal state, cancellation/reassignment, membership/role changes, connection/hooks and wake requests/acceptance/errors. `--full` includes complete message bodies/data; default text summarizes bodies. `--json` is one JSON event per line. The cursor is an **event sequence**, not a message seq.
 
+Without --after, --follow starts at the current event cursor. `--after now` makes that explicit; non-follow tail still shows recent history. Use `--actionable --for SID --format line` for concise metadata-only wake lines, or --json for structured events. The built-in watcher additionally checks current/recoverable work and tracks health, so prefer it for native host notifications.
+
 A follower subscribes before replay, deduplicates by event_seq, and reconnects with its last cursor. Observer calls never dequeue work. `--for` matches the recipient inbox (including its current commander role inbox); it is separate from observing the whole channel. Historical role-inbox events belong to the role, not permanently to a former commander's sid. Expired cursors produce `retention.gap`; observers can rebuild current work from list/recover. Cursors ahead of this database produce CURSOR_AHEAD instead of silently skipping events.
 
 ## Upgrade and verification boundary
 
 Automatic version-triggered shutdown is disabled, including upgrade requests from old clients. A newer client reports UPGRADE_REQUIRED. The 0.2 daemon rejects clients older than 0.2.0 (and missing/invalid versions) with PROTOCOL_MISMATCH before registration, because the tool semantics changed even though the wire protocol remains 1. Refresh/reinstall stale plugin caches and restart their MCP connections. `cmdr daemon restart` first opens a consistent SQLite backup in a temporary directory with the new bundle, exercising its schema and record readers before stopping the live service. A failed check leaves the old daemon running. Doctor lists connected clients and their versions; cached plugins still need refreshing/reinstalling.
 
-Tests exercise command recovery, role/member handover, cancellation gates, wake failure/reconciliation and CLI/daemon processes in disposable CMDR_HOME directories. They do not demonstrate that every host GUI grants hook trust or that real model turns will always acknowledge work. Real Codex queue execution and Claude/ZCode manual-continuation UX remain separate host checks. Windows, remote transport, new-agent creation and executor-to-executor messaging remain outside this implementation.
+Tests exercise command recovery, role/member handover, cancellation gates, wake failure/reconciliation and CLI/daemon processes in disposable CMDR_HOME directories. They do not demonstrate that every host GUI grants hook trust or that real model turns will always acknowledge work. Real model wake/report cycles remain separate host checks. Windows, remote transport, new-agent creation and executor-to-executor messaging remain outside this implementation.

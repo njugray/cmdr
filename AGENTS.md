@@ -1,6 +1,6 @@
 # cmdr 项目指引
 
-cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。当前 v1 面向 macOS/Linux、单机单用户，使用 Unix socket 和 SQLite WAL。保持通用 MCP 宿主兼容性；创建 Agent、远程传输和 executor 互发消息不属于当前范围，除非任务明确要求扩展。受管理唤醒通过宿主公开接口适配；不支持的宿主必须明确为 manual。
+cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。当前 v1 面向 macOS/Linux、单机单用户，使用 Unix socket 和 SQLite WAL。保持通用 MCP 宿主兼容性；创建 Agent、远程传输和 executor 互发消息不属于当前范围，除非任务明确要求扩展。Codex 支持 proxy/queue，Claude/ZCode 使用内置 watcher 与宿主原生通知；不支持的宿主必须明确为 manual。
 
 ## 按任务查阅
 
