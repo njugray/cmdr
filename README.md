@@ -8,7 +8,7 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-**One-command setup (0.4.0, not yet released):** replace `claude-code` with `codex` or `zcode` for your host.
+**One-command setup (0.4.0):** replace `claude-code` with `codex` or `zcode` for your host.
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
