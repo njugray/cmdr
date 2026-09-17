@@ -6,7 +6,7 @@ cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。�
 
 - 修改消息、角色、队列或持久化：从 `src/daemon/core.ts`、`src/daemon/store.ts` 和 `src/shared/protocol.ts`、`src/shared/schemas.ts` 定位；设计背景见 `docs/cmdr-design-v1.md`，实际实现与设计差异见 `docs/implementation.md`。
 - 修改身份、MCP 桥接或生命周期 hooks：查看 `src/mcp/`、`src/hook/` 和 `docs/agent-integration.md` 对应宿主章节。
-- 修改安装或分发：查看 `scripts/build.mjs`、`plugins/cmdr/` 下的宿主 manifests、`bin/` 启动脚本及 marketplace 文件。
+- 修改安装或分发：查看 `scripts/build.mjs`、`plugins/cmdr/` 下的宿主 manifests、`bin/` 启动脚本及 marketplace 文件；发布及授权流程见 `docs/publishing.md`。
 - 修改用户操作方式：同步相关的 `README.md`、`docs/README.zh-CN.md` 及插件命令/技能说明。
 
 这些是按需入口，不要求每次修改前通读文档。设计文档中的历史原型记录不代表当前实现或验证结果。
