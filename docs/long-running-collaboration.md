@@ -38,20 +38,20 @@ report(status="working", reply_to="COMMAND_ID", message="Accepted; starting chec
 report(status="done", reply_to="COMMAND_ID", message="Checks passed")
 ```
 
-Sending another command to a member with unfinished work returns a warning. A duplicate active `task_key` is rejected across the channel. Free text cannot reliably identify the same ticket; use task_key. Uncorrelated ready/progress reports remain available but cannot complete a command. On upgrade, retained correlated reports restore legacy command states; absent/expired evidence is conservatively shown as unfinished and needs reconciliation. A terminal report from another member or a late attempt to reopen completed work is rejected.
+Sending another command to a member with unfinished work returns a warning. A duplicate active `task_key` is rejected across the channel. Free text cannot reliably identify the same ticket; use task_key. Uncorrelated ready/progress reports remain available but cannot complete a command. On upgrade, retained correlated reports restore legacy command states; absent/expired evidence is conservatively shown as unfinished and needs reconciliation. A terminal report from another member or a late attempt to reopen completed work is rejected. Each command reserves admission for the report that first makes it terminal: work state, report and any replacement release commit atomically even when the role inbox is full. This may exceed maxQueue by one report per completed command; ordinary and repeated reports remain subject to the queue cap and all reports retain sender rate limits.
 
 ```text
 send(type="cancel", to="tests", reply_to="COMMAND_ID", message="Stop at a safe checkpoint")
 send(to="replacement", reassign="COMMAND_ID", message="Take over D69 after cancellation")
 ```
 
-Cancel messages have reserved priority and capacity, ahead of ordinary commands. Their reads appear in the event stream. Cancellation is cooperative through hooks or explicit checkpoints; cmdr does not forcibly terminate a running model or process. Reassignment requests cancellation automatically. If the original was never read it is cancelled immediately; otherwise the replacement remains blocked until the original owner reports a terminal state. The daemon does not infer stopped execution from an offline connection or timeout. Verify actual work before deciding whether a replacement is still necessary after an original owner reports completed.
+Cancel messages have reserved priority and capacity, ahead of ordinary commands. Their reads appear in the event stream. Cancellation is cooperative through hooks or explicit checkpoints; cmdr does not forcibly terminate a running model or process. Reassignment requests cancellation automatically and inherits the original task_key. Supplying a different key is rejected before cancellation. If the original was never read it is cancelled immediately; otherwise the replacement remains blocked until the original owner reports a terminal state. The daemon does not infer stopped execution from an offline connection or timeout. Verify actual work before deciding whether a replacement is still necessary after an original owner reports completed.
 
 ## Recovery and compact reads
 
 On startup or after a wake, use ordinary `read` and `read(recover=true)`. Recovery lists all unfinished commands, including already-read and accepted work, without consuming anything. Reconcile files/processes before continuing an accepted command; do not blindly repeat it. `read(id="MESSAGE_ID")` is also non-consuming and returns the full message for that inbox. `peek` and `history` remain non-consuming. Cancelled waiting reads do not consume future arrivals.
 
-`read` omits squad_summary by default; `list` omits repeated member boards and detailed session fields. Use `full=true` / `--full` for expanded output and `limit` / `--limit` to bound reads. Do not pipe a consuming read into head: output lost after delivery is recoverable through history/ID lookup, but is no longer unread.
+`read` omits squad_summary by default; `list` omits repeated member boards and detailed session fields. Listings never include command bodies, including with full=true. Use read(id=...) for your own messages, or operator tail --full for observation. Use `full=true` / `--full` for expanded metadata and `limit` / `--limit` to bound reads. Do not pipe a consuming read into head: output lost after delivery is recoverable through history/ID lookup, but is no longer unread.
 
 ## Managed standby
 
@@ -79,7 +79,7 @@ cmdr standby resume --session SID --resolve retry
 
 `retry` explicitly permits a fresh wake; it is not evidence the previous attempt failed. After a completed host turn with changed but unfinished work, the listener can issue a recovery wake. Repeated notifications or listener restart do not independently create duplicate requests. Host acceptance is never task acceptance: only the command's correlated report confirms that.
 
-Claude, ZCode and other MCP hosts currently report manual. `can_auto_respond` is true only for an enabled healthy adapter. After registration, check list; starting is not confirmation. With a healthy listener, the model may end its idle turn. Otherwise the skill permits at most two recommended waits, then explains manual continuation. Never promise active wakeup based solely on hooks or a successful send.
+Claude, ZCode and other MCP hosts currently report manual. `can_auto_respond` is true only for an enabled healthy adapter. A queued host submission with unknown runtime state remains unhealthy with can_auto_respond=false; once idle is confirmed, the same submission can start without another enqueue. After registration, check list; starting is not confirmation. With a healthy listener, the model may end its idle turn. Otherwise the skill permits at most two recommended waits, then explains manual continuation. Never promise active wakeup based solely on hooks or a successful send.
 
 ## Lifecycle observation
 
@@ -94,6 +94,6 @@ A follower subscribes before replay, deduplicates by event_seq, and reconnects w
 
 ## Upgrade and verification boundary
 
-Automatic version-triggered shutdown is disabled, including upgrade requests from old clients. A newer client reports UPGRADE_REQUIRED. `cmdr daemon restart` first opens a consistent SQLite backup in a temporary directory with the new bundle, exercising its schema and record readers before stopping the live service. A failed check leaves the old daemon running. Doctor lists connected clients and their versions; cached plugins still need refreshing/reinstalling.
+Automatic version-triggered shutdown is disabled, including upgrade requests from old clients. A newer client reports UPGRADE_REQUIRED. The 0.2 daemon rejects clients older than 0.2.0 (and missing/invalid versions) with PROTOCOL_MISMATCH before registration, because the tool semantics changed even though the wire protocol remains 1. Refresh/reinstall stale plugin caches and restart their MCP connections. `cmdr daemon restart` first opens a consistent SQLite backup in a temporary directory with the new bundle, exercising its schema and record readers before stopping the live service. A failed check leaves the old daemon running. Doctor lists connected clients and their versions; cached plugins still need refreshing/reinstalling.
 
 Tests exercise command recovery, role/member handover, cancellation gates, wake failure/reconciliation and CLI/daemon processes in disposable CMDR_HOME directories. They do not demonstrate that every host GUI grants hook trust or that real model turns will always acknowledge work. Real Codex queue execution and Claude/ZCode manual-continuation UX remain separate host checks. Windows, remote transport, new-agent creation and executor-to-executor messaging remain outside this implementation.

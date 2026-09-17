@@ -156,7 +156,10 @@ export class StandbyManager {
       if (!valid()) return;
       s.host_state = host;
       s.checked_at = Date.now();
-      s.error = undefined;
+      s.error =
+        host === 'unknown'
+          ? 'Host session is not loaded or its runtime state is unavailable; resume it in the host.'
+          : undefined;
       const work = this.actionable(s.sid);
       const fingerprint = createHash('sha256')
         .update(
@@ -181,8 +184,12 @@ export class StandbyManager {
           s.request.message_ids = [
             ...new Set([...s.request.message_ids, ...work.map((m) => m.id)]),
           ];
-          s.health = 'healthy';
-          this.save(s, recordChanged(store.standby(s.sid), s) ? 'wake.accepted' : undefined);
+          s.health = host === 'unknown' ? 'error' : 'healthy';
+          this.save(
+            s,
+            recordChanged(store.standby(s.sid), s) ? 'wake.accepted' : undefined,
+            s.error,
+          );
           if (host === 'idle') await adapter.start(session.native_id, found.submission);
           return;
         }
@@ -195,7 +202,7 @@ export class StandbyManager {
             (found.found && host === 'idle' && fingerprint !== s.request.fingerprint)
           ) {
             s.request.state = 'observed';
-            s.health = 'healthy';
+            s.health = host === 'unknown' ? 'error' : 'healthy';
             this.save(s, 'wake.observed');
           } else {
             s.health =
@@ -221,9 +228,6 @@ export class StandbyManager {
         }
       }
       s.health = host === 'unknown' ? 'error' : 'healthy';
-      if (host === 'unknown')
-        s.error =
-          'Host session is not loaded or its runtime state is unavailable; resume it in the host.';
       this.save(s, recordChanged(store.standby(s.sid), s) ? 'standby.health' : undefined, s.error);
       if (!work.length || host !== 'idle') return;
       s.request = {

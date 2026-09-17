@@ -107,6 +107,111 @@ it('cancels unread work immediately without delivering it to the old owner', asy
   expect((await f.core.handle(e, 'msg.read')).messages.map((m: any) => m.type)).toEqual(['cancel']);
   expect((await f.core.handle(n, 'msg.read')).messages[0].body).toBe('new');
 });
+it('keeps task bodies out of full listings, including callers outside the channel', async () => {
+  f = fixture();
+  const { c, e, id: squad } = await f.squad();
+  const outsider = await f.session('generic', 'unjoined');
+  const other = await f.session('generic', 'other-commander');
+  await f.core.handle(other, 'session.join', { squad_name: 'Other', role: 'commander' });
+  const body = 'private command body';
+  const id = (await f.core.handle(c, 'msg.send', { to: e.sid, message: body })).ids[0];
+  for (const caller of [c, e, outsider, other]) {
+    for (const options of [{ scope: 'all' }, { scope: 'squad', squad }]) {
+      const listing = await f.core.handle(caller, 'session.list', { ...options, full: true });
+      expect(JSON.stringify(listing)).not.toContain(body);
+      expect(listing.sessions.find((s: any) => s.sid === e.sid).commands[0]).toMatchObject({ id });
+    }
+  }
+  expect((await f.core.handle(e, 'msg.read', { id })).messages[0].body).toBe(body);
+});
+it('rejects a changed ticket key before cancelling the original and preserves ownership after handover', async () => {
+  f = fixture();
+  const { c, e, id: squad } = await f.squad();
+  const n = await f.session('generic', 'replacement');
+  await f.core.handle(n, 'session.join', { squad, role: 'executor' });
+  const original = (
+    await f.core.handle(c, 'msg.send', { to: e.sid, message: 'original', task_key: 'D69' })
+  ).ids[0];
+  await f.core.handle(e, 'msg.read');
+  await expect(
+    f.core.handle(c, 'msg.send', {
+      to: n.sid,
+      message: 'replacement',
+      reassign: original,
+      task_key: 'D70',
+    }),
+  ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  expect(f.store.message(original)?.work).toMatchObject({ state: 'read' });
+  expect(f.store.message(original)?.work?.cancel_requested_at).toBeUndefined();
+  expect(f.store.queue(e.sid!)).toHaveLength(0);
+  const replacement = await f.core.handle(c, 'msg.send', {
+    to: n.sid,
+    message: 'replacement',
+    reassign: original,
+    task_key: 'D69',
+  });
+  await f.core.handle(e, 'msg.report', {
+    status: 'cancelled',
+    reply_to: original,
+    message: 'stopped',
+  });
+  expect(f.store.message(replacement.ids[0])?.task_key).toBe('D69');
+  await expect(
+    f.core.handle(c, 'msg.send', { to: e.sid, message: 'duplicate', task_key: 'D69' }),
+  ).rejects.toMatchObject({ code: 'TASK_OWNED' });
+});
+it.each(['done', 'failed', 'cancelled'] as const)(
+  'persists %s and releases reassignment with a full orphaned role inbox',
+  async (status) => {
+    f = fixture({ maxQueue: 2 });
+    const { c, e, id: squad } = await f.squad();
+    const n = await f.session('generic', 'replacement');
+    await f.core.handle(n, 'session.join', { squad, role: 'executor' });
+    await f.core.handle(c, 'msg.read');
+    const original = (await f.core.handle(c, 'msg.send', { to: e.sid, message: 'original' }))
+      .ids[0];
+    await f.core.handle(e, 'msg.read');
+    const replacement = await f.core.handle(c, 'msg.send', {
+      to: n.sid,
+      message: 'replacement',
+      reassign: original,
+    });
+    await f.core.handle(c, 'session.leave');
+    for (let i = 0; i < 2; i++)
+      await f.core.handle(e, 'msg.report', { status: 'working', message: 'fills role inbox' });
+    await expect(
+      f.core.handle(e, 'msg.report', { status: 'done', message: 'uncorrelated' }),
+    ).rejects.toMatchObject({ code: 'QUEUE_FULL' });
+    const report = await f.core.handle(e, 'msg.report', {
+      status,
+      reply_to: original,
+      message: 'original stopped',
+    });
+    expect(report.work.state).toBe(status === 'done' ? 'completed' : status);
+    expect((await f.core.handle(n, 'msg.read')).messages[0].id).toBe(replacement.ids[0]);
+    // Each issued command gets one terminal report, even when prior terminal reports are unread.
+    const next = await f.core.handle(n, 'msg.report', {
+      status: 'done',
+      reply_to: replacement.ids[0],
+      message: 'replacement finished',
+    });
+    await expect(
+      f.core.handle(e, 'msg.report', { status, reply_to: original, message: 'duplicate' }),
+    ).rejects.toMatchObject({ code: 'QUEUE_FULL' });
+    const store = new Store(f.p.db);
+    try {
+      expect(store.commands()).toHaveLength(0);
+      expect(store.queue(`squad:${squad}`).map((m) => m.id)).toContain(report.id);
+      expect(store.queue(`squad:${squad}`).map((m) => m.id)).toContain(next.id);
+    } finally {
+      store.close();
+    }
+    await f.core.handle(c, 'session.join', { role: 'commander', squad });
+    const reports = (await f.core.handle(c, 'msg.read')).messages;
+    expect(reports.find((m: any) => m.id === report.id)?.body).toBe('original stopped');
+    expect(reports.find((m: any) => m.id === next.id)?.body).toBe('replacement finished');
+  },
+);
 it('warns about unfinished work and rejects reports from the wrong member', async () => {
   f = fixture();
   const { c, e, id } = await f.squad();

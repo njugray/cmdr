@@ -8,7 +8,7 @@ import { logger } from './logger.js';
 import { paths, prepare } from '../shared/paths.js';
 import { config } from '../shared/config.js';
 import { Rpc } from '../shared/rpc.js';
-import { PROTOCOL, VERSION } from '../shared/version.js';
+import { MIN_CLIENT_VERSION, PROTOCOL, VERSION, newer } from '../shared/version.js';
 import { fail } from '../shared/protocol.js';
 export async function startDaemon(home?: string) {
   process.umask(0o077);
@@ -50,6 +50,15 @@ export async function startDaemon(home?: string) {
           fail(
             'PROTOCOL_MISMATCH',
             `Protocol mismatch: client ${String(params.protocol).slice(0, 20)}, daemon ${PROTOCOL} (${VERSION}). Update/reinstall the plugin cache, restart the daemon with the matching cmdr installation, then restart the host session.`,
+          );
+        const clientVersion =
+          typeof params.version === 'string'
+            ? params.version.match(/^(\d+\.\d+\.\d+)(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/)?.[1]
+            : undefined;
+        if (!clientVersion || newer(MIN_CLIENT_VERSION, clientVersion))
+          fail(
+            'PROTOCOL_MISMATCH',
+            `Daemon ${VERSION} requires client ${MIN_CLIENT_VERSION} or newer for compatible tool semantics. Update/reinstall the plugin cache and restart the host MCP connection.`,
           );
         greeted = true;
         ctx.version = String(params.version || 'unknown').slice(0, 80);

@@ -97,7 +97,7 @@ Exactly seven MCP tools are exposed, independently of the host:
 | `read` | Priority dequeue, peek/history, recover, ID lookup and long polling |
 | `leave` | Leave, orphan or dissolve a squad |
 
-Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. Delivery is distinct from acceptance and completion. `read(recover=true)` non-destructively lists all unfinished commands, including already-read work. `pending=0`, `unread=0` and `offline` never release task ownership. `read`/`list` are compact by default; use `full=true` for expanded output. No exactly-once execution guarantee is made.
+Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. Delivery is distinct from acceptance and completion. `read(recover=true)` non-destructively lists all unfinished commands, including already-read work. `pending=0`, `unread=0` and `offline` never release task ownership. `read`/`list` are compact by default; use `full=true` for expanded metadata. Listings never include command bodies; use `read(id=...)` for your own inbox or operator `tail --full` for observation. No exactly-once execution guarantee is made.
 
 ## Installation diagnostics and member CLI
 
@@ -142,7 +142,7 @@ State is under `~/.cmdr/`; `CMDR_HOME` overrides it. The directory is 0700 and t
 }
 ```
 
-The daemon keeps queues, role membership, global message order and history in SQLite (WAL). Hooks expose only message metadata, never message bodies; Stop blocks only on actionable unread messages and is throttled. Queue caps and rate limits provide backpressure. Automatic daemon replacement is disabled. `cmdr daemon restart` validates this bundle against a consistent database copy before stopping the old daemon. `doctor` lists connected client versions and listener health.
+The daemon keeps queues, role membership, global message order and history in SQLite (WAL). Hooks expose only message metadata, never message bodies; Stop blocks only on actionable unread messages and is throttled. Queue caps and rate limits provide backpressure. Each command reserves admission for its first correlated terminal report, so a full role inbox cannot roll back completion; ordinary and repeated reports remain capped. Automatic daemon replacement is disabled. `cmdr daemon restart` validates this bundle against a consistent database copy before stopping the old daemon. `doctor` lists connected client versions and listener health. The 0.2 daemon rejects cached 0.1.x clients at handshake; refresh/reinstall the plugin cache and reconnect the host.
 
 ## Why MCP instead of terminal orchestration?
 

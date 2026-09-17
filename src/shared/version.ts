@@ -1,5 +1,7 @@
 declare const __VERSION__: string;
-export const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : '0.1.0';
+// Protocol 1 keeps its wire format, but 0.2 changes join and command semantics.
+export const MIN_CLIENT_VERSION = '0.2.0';
+export const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : MIN_CLIENT_VERSION;
 export const PROTOCOL = 1;
 export function newer(a: string, b: string) {
   const x = a.split('.').map(Number),

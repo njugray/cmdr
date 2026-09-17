@@ -11,6 +11,7 @@ import { connect } from 'node:net';
 import { quickCall } from '../src/shared/client.js';
 import { paths } from '../src/shared/paths.js';
 import { Rpc } from '../src/shared/rpc.js';
+import { PROTOCOL, VERSION } from '../src/shared/version.js';
 const run = promisify(execFile),
   clients: Client[] = [];
 let home: string;
@@ -148,7 +149,7 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
     )
     .toContain('commander');
 }, 10000);
-it('requires hello before RPC operations and rejects incompatible protocol versions', async () => {
+it('requires hello and rejects incompatible protocols and stale cached client semantics', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-rpc-'));
   await run(cli, ['daemon', 'start'], { env: env() });
   const socket = connect(paths(home).socket);
@@ -161,6 +162,25 @@ it('requires hello before RPC operations and rejects incompatible protocol versi
     await expect(rpc.request('hello', { protocol: 999, version: '99.0.0' })).rejects.toMatchObject({
       code: 'PROTOCOL_MISMATCH',
     });
+    for (const version of ['0.1.0', '0.1.2', '0.1.99', '', 'unknown', undefined]) {
+      await expect(rpc.request('hello', { protocol: PROTOCOL, version })).rejects.toMatchObject({
+        code: 'PROTOCOL_MISMATCH',
+        message: expect.stringContaining('plugin cache'),
+      });
+      await expect(
+        rpc.request('session.register', { kind: 'mcp', agent: 'generic' }),
+      ).rejects.toMatchObject({ code: 'PROTOCOL_MISMATCH' });
+    }
+    await expect(
+      rpc.request('hello', { protocol: PROTOCOL, version: VERSION }),
+    ).resolves.toMatchObject({
+      protocol: PROTOCOL,
+      version: VERSION,
+    });
+    await rpc.request('session.register', { kind: 'mcp', agent: 'generic', native_id: 'current' });
+    expect((await rpc.request('session.join', { squad_name: 'Compatible' })).me.role).toBe(
+      'executor',
+    );
   } finally {
     rpc.close();
   }
@@ -234,7 +254,7 @@ it('requires a validated explicit restart to upgrade without disrupting queued w
       await new Promise<void>((r) => socket.once('connect', r));
       const rpc = new Rpc(socket);
       peers.push(rpc);
-      await rpc.request('hello', { version: '0.0.9', protocol: 1 });
+      await rpc.request('hello', { version: VERSION, protocol: PROTOCOL });
       await rpc.request('session.register', { kind: 'mcp', agent: 'generic', native_id: id });
       return rpc;
     }

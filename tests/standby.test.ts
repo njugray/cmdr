@@ -88,6 +88,38 @@ it('surfaces a crash before enqueue as uncertain instead of silently marking wor
   await manager.tick();
   expect(host.requests).toHaveLength(1);
 });
+it('keeps a queued wake unhealthy while host state is unknown and recovers without another enqueue', async () => {
+  const { c, e, host } = await setup();
+  await f.core.handle(c, 'msg.send', { to: e.sid, message: 'pending' });
+  await manager.tick();
+  const request = f.store.standby(e.sid!)!.request!;
+  const starts = host.starts;
+  manager.close();
+  manager = new StandbyManager(f.core, () => host);
+  host.status = 'unknown';
+  for (let i = 0; i < 2; i++) {
+    await manager.tick();
+    expect((await f.core.handle(e, 'session.list')).me.listener).toMatchObject({
+      health: 'error',
+      host_state: 'unknown',
+      can_auto_respond: false,
+      request: { id: request.id, state: 'accepted' },
+    });
+    expect(f.store.standby(e.sid!)?.error).toContain('runtime state');
+  }
+  expect(host.starts).toBe(starts);
+  host.status = 'idle';
+  await manager.tick();
+  expect((await f.core.handle(e, 'session.list')).me.listener).toMatchObject({
+    health: 'healthy',
+    host_state: 'idle',
+    can_auto_respond: true,
+    request: { id: request.id, state: 'accepted' },
+  });
+  expect(f.store.standby(e.sid!)?.error).toBeUndefined();
+  expect(host.starts).toBe(starts + 1);
+  expect(host.requests).toHaveLength(1);
+});
 it('recovers read-before-crash work when the host becomes idle without concurrent turns', async () => {
   const { c, e, host } = await setup();
   const command = (await f.core.handle(c, 'msg.send', { to: e.sid, message: 'recover' })).ids[0];

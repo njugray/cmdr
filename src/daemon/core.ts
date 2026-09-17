@@ -194,7 +194,6 @@ export class Core {
         unacked_for: m.work?.accepted_at ? null : Math.floor((Date.now() - m.created_at) / 1000),
         cancel_requested_at: m.work?.cancel_requested_at,
         blocked_by: m.blocked_by,
-        ...(full ? { body: m.body } : {}),
       }));
     return {
       ...(full
@@ -489,11 +488,13 @@ export class Core {
       reply_to?: string;
       attn?: boolean;
       operator?: boolean;
+      terminalAck?: boolean;
     } = {},
   ) {
     if (
+      !opts.terminalAck &&
       this.store.queue(to).filter((m) => (m.type === 'cancel') === (type === 'cancel')).length >=
-      (type === 'cancel' ? 100 : this.config.maxQueue)
+        (type === 'cancel' ? 100 : this.config.maxQueue)
     )
       fail('QUEUE_FULL', `Queue for ${to} is full`);
     const m: Message = {
@@ -806,16 +807,19 @@ export class Core {
     )
       fail('INVALID_ARGUMENT', 'reassign must reference one unfinished command in this channel');
     if (previous?.work?.replacement_id) fail('ALREADY_REASSIGNED');
+    if (previous?.task_key && p.task_key && p.task_key !== previous.task_key)
+      fail('INVALID_ARGUMENT', 'Reassignment must preserve the original task_key');
+    const taskKey = previous?.task_key || p.task_key;
     if (p.task_key && (p.type !== 'command' || recipients.length !== 1))
       fail(
         'INVALID_ARGUMENT',
         'task_key identifies one command owner; do not broadcast the same ticket',
       );
     if (
-      p.task_key &&
+      taskKey &&
       this.store
         .commands()
-        .some((m) => m.squad_id === qid && m.task_key === p.task_key && m.id !== previous?.id)
+        .some((m) => m.squad_id === qid && m.task_key === taskKey && m.id !== previous?.id)
     )
       fail('TASK_OWNED', 'This task_key already has unfinished work. Use reassign=<command id>.');
     const warnings = recipients.flatMap((s) => {
@@ -883,7 +887,7 @@ export class Core {
         operator: ctx.kind === 'cli',
       });
       if (p.type === 'command') {
-        m.task_key = p.task_key || previous?.task_key;
+        m.task_key = taskKey;
         if (previous && !terminalWork(previous)) m.blocked_by = previous.id;
         this.store.saveMessage(m);
         if (previous) {
@@ -912,6 +916,7 @@ export class Core {
   private reportOrAsk(ctx: Context, p: any, ask: boolean) {
     const s = !ask && p.reply_to ? this.required(ctx) : this.member(ctx, 'executor');
     let command = !ask && p.reply_to ? this.store.message(p.reply_to) : undefined;
+    let terminalAck = false;
     const q = this.store.squad(command?.squad_id || s.squad_id!) || fail('NOT_JOINED');
     if (!ask && p.reply_to) {
       command = this.store.message(p.reply_to);
@@ -947,6 +952,7 @@ export class Core {
         command.status = 'delivered';
         command.delivered_at ||= now;
         this.store.saveMessage(command);
+        terminalAck = terminalWork(command);
         this.messageEvent(changed ? `work.${state}` : 'work.progress', command);
         if (terminalWork(command) && command.work.replacement_id) {
           const replacement = this.store.message(command.work.replacement_id)!;
@@ -962,6 +968,9 @@ export class Core {
       data: ask ? p.data : { ...p.data, status: p.status },
       priority: ask ? 0 : ['blocked', 'failed'].includes(p.status) ? 1 : 2,
       attn: ask || ['done', 'failed', 'blocked', 'cancelled'].includes(p.status),
+      // Each issued command reserves admission for its first terminal report.
+      // Keep work and report atomic even under backpressure; repeats use the ordinary cap.
+      terminalAck,
     });
     if (!ask) {
       s.last_status = { status: p.status, message: p.message.slice(0, 300) };
