@@ -1,6 +1,6 @@
 # npm 发布
 
-待发布版本为 `cmdr-mcp@0.4.0`。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。全局安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
+本次发布版本为 `cmdr-mcp@0.4.0`。npm 包名是 `cmdr-mcp`，CLI、宿主插件和 marketplace 名称仍为 `cmdr`。全局安装后的包根目录是 `$(npm root -g)/cmdr-mcp`。
 
 ## 准备与验证
 
@@ -49,7 +49,7 @@ npm install --global cmdr-mcp@0.4.0 --registry https://registry.npmjs.org/
 cmdr --help
 ```
 
-按照[安装说明](README.zh-CN.md#安装)运行 setup 或注册原生插件。原生插件升级后刷新或重装宿主缓存，使用新版本 CLI 执行 `cmdr daemon restart`，再重连 MCP；该命令先做一致性预检，再替换旧 daemon。随后检查监听状态，Claude/ZCode 按 `listener.arm` 重新挂载 watcher。发布后移除首页的待发布提示。
+按照[安装说明](README.zh-CN.md#安装)运行 setup 或注册原生插件。原生插件升级后刷新或重装宿主缓存，使用新版本 CLI 执行 `cmdr daemon restart`，再重连 MCP；该命令先做一致性预检，再替换旧 daemon。随后检查监听状态，Claude/ZCode 按 `listener.arm` 重新挂载 watcher。
 
 npm 命令行为参考：[npm publish 官方文档](https://docs.npmjs.com/cli/v11/commands/npm-publish/)。
 

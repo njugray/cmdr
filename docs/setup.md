@@ -8,8 +8,6 @@ npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 
 Choose `claude-code`, `codex` or `zcode`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the seven tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
 
-Before 0.4.0 is published, build the checkout and run `plugins/cmdr/bin/cmdr setup --agent …`, or use a locally packed tarball.
-
 To install only the self-contained skill and its role/setup references:
 
 ```sh
