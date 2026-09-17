@@ -1,5 +1,7 @@
 # cmdr 设计方案（v1）
 
+> 历史设计存档。本轮自动唤醒以[长期协作](long-running-collaboration.md#automatic-standby)和[实现记录](implementation.md)为准：已移除禁止主动唤醒、所有非 Codex 宿主一律 manual、要求模型循环待命 40 轮等旧限制；新建 Agent 会话不在本轮范围内。下文的原型记录不代表当前实现。
+
 > **cmdr**（Commander）：让同一台机器上的多个 Claude Code / Codex 会话组成"小队"，通过 MCP 工具互相通信。指挥官下发命令、回答询问，执行方报到、汇报、询问；服务端为每个会话维护一个带优先级的消息队列，并通过 hooks 在合适的时机提醒 Agent 读取。
 >
 > **当前实现状态（2026-09-08）**：本仓库已从仅含文档的分支实现 v1 源码、插件与测试，并按新增需求支持 ZCode 桌面端和任意 MCP Agent 接入。本文保留既有设计及原型试用记录；其中历史 v0.1.x 的完成日期、版本号与实测结论不是本次代码的验证凭据。本次具体交付、差异、38 个自动化用例和 ZCode 本机运行时验证见 [实现与验证记录](implementation.md)，新增宿主契约见 [Agent 接入指南](agent-integration.md)。

@@ -19,6 +19,8 @@ export class CmdrError extends Error {
 export function fail(code: string, message?: string): never {
   throw new CmdrError(code, message);
 }
+// Raised only before a host delivery call is attempted, so deferral is safe.
+export class WakeDeferred extends Error {}
 export interface Session {
   sid: string;
   agent: Agent;
@@ -70,6 +72,7 @@ export interface Message {
   reply_to: string | null;
   status: 'queued' | 'delivered';
   attn: boolean;
+  direct?: boolean;
   created_at: number;
   delivered_at: number | null;
   work?: Work;
@@ -101,6 +104,7 @@ export interface LifecycleEvent {
   data?: Record<string, unknown>;
 }
 export interface WakeRequest {
+  transport?: 'proxy' | 'queue';
   id: string;
   fingerprint: string;
   message_ids: string[];
@@ -113,7 +117,10 @@ export interface Standby {
   generation?: number;
   sid: string;
   enabled: boolean;
-  wake_mode: 'codex' | 'manual';
+  wake_mode: 'codex' | 'claude' | 'zcode' | 'manual';
+  transport?: 'proxy' | 'queue';
+  codex_transport?: 'auto' | 'proxy' | 'queue';
+  lease?: { token: string; expires_at: number };
   executable?: string;
   socket?: string;
   health: 'starting' | 'healthy' | 'stopped' | 'manual' | 'error' | 'uncertain' | 'stalled';

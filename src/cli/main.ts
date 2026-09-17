@@ -1,3 +1,4 @@
+import { watch } from './watch.js';
 import { tail } from './tail.js';
 import { runSession } from './session.js';
 import { inspectInstallation, probeMcp, diagnosticStatus } from './doctor.js';
@@ -39,6 +40,10 @@ if (process.argv[2] === 'setup') {
       after: { type: 'string' },
       for: { type: 'string' },
       adapter: { type: 'string' },
+      transport: { type: 'string' },
+      actionable: { type: 'boolean' },
+      once: { type: 'boolean' },
+      format: { type: 'string' },
       executable: { type: 'string' },
       socket: { type: 'string' },
       resolve: { type: 'string' },
@@ -149,7 +154,7 @@ if (process.argv[2] === 'setup') {
   try {
     if (v.help)
       process.stdout.write(
-        'cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ] [--for SID] | standby start|status|stop|resume --session SID [--adapter codex|manual] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
+        'cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
       );
     else if (cmd === 'config') {
       const agent = v.agent || 'generic';
@@ -250,30 +255,37 @@ if (process.argv[2] === 'setup') {
     } else if (cmd === 'purge') print(await call('admin.purge', { all: !!v.all }));
     else if (cmd === 'standby') {
       if (!v.session) throw new Error('--session SID is required');
-      print(
-        await call(
-          'admin.standby',
-          {
-            sid: v.session,
-            action: args[1] || 'status',
-            adapter: v.adapter,
-            executable: v.executable,
-            socket: v.socket,
-            resolve: v.resolve,
-          },
-          true,
-        ),
-      );
+      if (args[1] === 'watch') await watch(v.session, !!v.once);
+      else
+        print(
+          await call(
+            'admin.standby',
+            {
+              sid: v.session,
+              action: args[1] || 'status',
+              adapter: v.adapter,
+              transport: v.transport,
+              executable: v.executable,
+              socket: v.socket,
+              resolve: v.resolve,
+            },
+            true,
+          ),
+        );
     } else if (cmd === 'tail') {
-      const after = v.after === undefined ? undefined : Number(v.after);
-      if (after !== undefined && (!Number.isSafeInteger(after) || after < 0))
-        throw new Error('--after requires a nonnegative event_seq');
+      const after = v.after === undefined ? undefined : v.after === 'now' ? 'now' : Number(v.after);
+      if (after !== undefined && after !== 'now' && (!Number.isSafeInteger(after) || after < 0))
+        throw new Error('--after requires now or a nonnegative event_seq');
+      if (v.format && !['line', 'json'].includes(v.format))
+        throw new Error('--format must be line or json');
       await tail({
         squad: v.squad,
         for: v.for,
         after,
         full: !!v.full,
-        json: !!v.json,
+        json: !!v.json || v.format === 'json',
+        line: v.format === 'line',
+        actionable: !!v.actionable,
         follow: !!v.follow,
       });
     } else if (cmd === 'daemon') {

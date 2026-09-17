@@ -47,13 +47,15 @@ function fixture() {
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.close();
   for (const root of roots.splice(0)) {
-    try {
-      await quickCall(
-        'admin.shutdown',
-        { reason: 'setup-test' },
-        { home: join(root, 'state'), timeout: 1000 },
-      );
-    } catch {}
+    for (const state of ['state', 'unrelated-state']) {
+      try {
+        await quickCall(
+          'admin.shutdown',
+          { reason: 'setup-test' },
+          { home: join(root, state), timeout: 1000 },
+        );
+      } catch {}
+    }
     await new Promise((r) => setTimeout(r, 100));
     rmSync(root, { recursive: true, force: true });
   }
@@ -158,7 +160,7 @@ it.each(['claude-code', 'codex', 'zcode'])(
     clients.push(client);
     expect((await client.listTools()).tools).toHaveLength(7);
     const expectedAgent = agent === 'claude-code' ? 'claude' : agent;
-    let input: any = { squad_name: 'setup', standby: 'manual' };
+    let input: any = { squad_name: 'setup', standby: agent === 'codex' ? 'manual' : 'auto' };
     if (agent !== 'claude-code') {
       const handler = hooks.PreToolUse.at(-1).hooks[0];
       const stamped = await new Promise<string>((resolve, reject) => {
@@ -181,6 +183,51 @@ it.each(['claude-code', 'codex', 'zcode'])(
     expect(result.isError).toBeFalsy();
     const body = JSON.parse((result.content as any[])[0].text);
     expect(body.me.sid).toBe(`${expectedAgent}:${native}`);
+    if (agent !== 'codex') {
+      const commander = async (action: string, input: object) =>
+        JSON.parse(
+          (
+            await run(
+              installed.cli,
+              [
+                'session',
+                action,
+                '--agent',
+                'custom',
+                '--native-id',
+                'commander',
+                '--input',
+                JSON.stringify(input),
+              ],
+              { env: { ...f.env, CMDR_AGENT: '', CMDR_SESSION_ID: '' }, timeout: 10000 },
+            )
+          ).stdout,
+        );
+      await commander('join', { squad_name: 'setup', role: 'commander' });
+      const {
+        ids: [id],
+      } = await commander('send', {
+        to: body.me.sid,
+        message: 'private setup task',
+      });
+      // Execute exactly what the host receives, without the MCP launcher's state.
+      const { stdout } = await run('/bin/sh', ['-c', `${body.me.listener.arm.command} --once`], {
+        env: { ...f.env, CMDR_HOME: join(f.root, 'unrelated-state') },
+        timeout: 10000,
+      });
+      expect(JSON.parse(stdout).messages).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id })]),
+      );
+      expect(stdout).not.toContain('private setup task');
+      expect(existsSync(join(f.root, 'unrelated-state'))).toBe(false);
+      const unread = await client.callTool({
+        name: 'read',
+        arguments: { peek: true, ...(agent === 'zcode' ? { _cmdr_session: native } : {}) },
+      });
+      expect(JSON.parse((unread.content as any[])[0].text).messages).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id })]),
+      );
+    }
   },
   30000,
 );

@@ -39,6 +39,7 @@ export async function startDaemon(home?: string) {
     const ctx: Context = { notify: (m, p) => rpc.notify(m, p) };
     core.connect(ctx);
     let greeted = false;
+    let watcher: { sid: string; token: string } | undefined;
     rpc.handler = async (method, params, signal) => {
       if (!greeted && method !== 'hello')
         fail(
@@ -64,6 +65,21 @@ export async function startDaemon(home?: string) {
         ctx.version = String(params.version || 'unknown').slice(0, 80);
         ctx.client = String(params.client || 'unknown').slice(0, 80);
         return { version: VERSION, protocol: PROTOCOL };
+      }
+      if (method === 'admin.watch') {
+        if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
+        if (
+          !['attach', 'pulse'].includes(params.action) ||
+          typeof params.token !== 'string' ||
+          !params.token.length ||
+          params.token.length > 100
+        )
+          fail('INVALID_ARGUMENT');
+        if (watcher && (watcher.sid !== params.sid || watcher.token !== params.token))
+          fail('WATCHER_ACTIVE');
+        const result = standby.watch(params.sid, params.token, params.action);
+        watcher = { sid: params.sid, token: params.token };
+        return result;
       }
       if (method === 'admin.standby') {
         if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
@@ -97,6 +113,13 @@ export async function startDaemon(home?: string) {
     };
     rpc.on('close', () => {
       peers.delete(rpc);
+      if (!stopping && watcher) {
+        try {
+          standby.watch(watcher.sid, watcher.token, 'detach');
+        } catch {
+          /* stopped or replaced */
+        }
+      }
       if (!stopping) core.disconnect(ctx);
       if (!peers.size) idleSince = Date.now();
     });
