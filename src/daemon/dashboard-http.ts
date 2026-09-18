@@ -260,22 +260,35 @@ export class DashboardServer {
         error instanceof CmdrError
           ? error
           : new CmdrError('INTERNAL_ERROR', 'Dashboard request failed');
-      const status =
-        e.code === 'UNAUTHORIZED'
-          ? 401
-          : e.code === 'FORBIDDEN'
-            ? 403
-            : ['NOT_FOUND', 'SQUAD_NOT_FOUND'].includes(e.code)
-              ? 404
-              : ['VERSION_CONFLICT', 'QUESTION_CLOSED', 'SUBMISSION_CONFLICT'].includes(e.code)
-                ? 409
-                : e.code === 'QUEUE_FULL'
-                  ? 503
-                  : e.code === 'MESSAGE_TOO_LARGE'
-                    ? 413
-                    : e.code === 'INTERNAL_ERROR'
-                      ? 500
-                      : 400;
+      let status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503;
+      switch (e.code) {
+        case 'UNAUTHORIZED':
+          status = 401;
+          break;
+        case 'FORBIDDEN':
+          status = 403;
+          break;
+        case 'NOT_FOUND':
+        case 'SQUAD_NOT_FOUND':
+          status = 404;
+          break;
+        case 'VERSION_CONFLICT':
+        case 'QUESTION_CLOSED':
+        case 'SUBMISSION_CONFLICT':
+          status = 409;
+          break;
+        case 'QUEUE_FULL':
+          status = 503;
+          break;
+        case 'MESSAGE_TOO_LARGE':
+          status = 413;
+          break;
+        case 'INTERNAL_ERROR':
+          status = 500;
+          break;
+        default:
+          status = 400;
+      }
       return c.json({ code: e.code, message: e.message }, status);
     });
   }

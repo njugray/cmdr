@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { QuestionCard } from '../src/dashboard/app.js';
+import { QuestionCard } from '../src/dashboard/question-card.js';
 import { locale, resolveLanguage } from '../src/dashboard/i18n.js';
 
 vi.hoisted(() => {

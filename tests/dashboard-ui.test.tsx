@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { App, CommanderMessage, QuestionCard, type Draft } from '../src/dashboard/app.js';
+import { App } from '../src/dashboard/app.js';
+import { CommanderMessage } from '../src/dashboard/commander-message.js';
+import { QuestionCard, type Draft } from '../src/dashboard/question-card.js';
 import { refreshQueue } from '../src/dashboard/refresh.js';
 import type { Question, SquadSummary } from '../src/shared/dashboard.js';
 
