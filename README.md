@@ -8,7 +8,7 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-**One-command setup (0.4.0):** replace `claude-code` with `codex` or `zcode` for your host.
+**One-command setup (0.5.0):** replace `claude-code` with `codex` or `zcode` for your host.
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -42,7 +42,7 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.4.0.tgz
+npm install --global ./cmdr-mcp-0.5.0.tgz
 cmdr --help
 ```
 
