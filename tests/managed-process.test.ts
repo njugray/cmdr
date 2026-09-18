@@ -48,7 +48,9 @@ it('uses public Codex queue IPC, persists its wake across daemon restart and exp
   await member('e', 'join', { squad_name: 'managed' });
   await command(['standby', 'start', '--session', 'codex:e', '--executable', adapter]);
   await expect
-    .poll(async () => (await command(['standby', 'status', '--session', 'codex:e'])).health)
+    .poll(async () => (await command(['standby', 'status', '--session', 'codex:e'])).health, {
+      timeout: 5000,
+    })
     .toBe('healthy');
   const sent = await member('c', 'send', { to: 'codex:e', message: 'wake existing session' });
   await expect
