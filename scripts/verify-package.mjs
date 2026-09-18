@@ -46,6 +46,9 @@ try {
     'plugins/cmdr/skills/cmdr/references/setup.md',
     'plugins/cmdr/skills/cmdr/references/commander.md',
     'plugins/cmdr/skills/cmdr/references/executor.md',
+    'plugins/cmdr/dist/dashboard/index.html',
+    'plugins/cmdr/dist/dashboard/app.js',
+    'plugins/cmdr/dist/dashboard/app.css',
   ])
     assert.ok(files.has(path), `Missing package asset: ${path}`);
   assert.ok(
@@ -134,7 +137,7 @@ try {
   });
   client = new Client({ name: 'package-smoke', version: '1.0.0' });
   await client.connect(transport);
-  assert.equal((await client.listTools()).tools.length, 7);
+  assert.equal((await client.listTools()).tools.length, 9);
   const result = await client.callTool({ name: 'list', arguments: {} });
   assert.ok(!result.isError);
   assert.equal(JSON.parse(result.content[0].text).me.sid, 'generic:package-smoke');
@@ -162,7 +165,7 @@ try {
     ).stdout,
   );
   assert.equal(setup.ok, true);
-  assert.equal(setup.mcp.tools.length, 7);
+  assert.equal(setup.mcp.tools.length, 9);
   rmSync(join(dir, 'npm-cache'), { recursive: true, force: true });
   const persisted = JSON.parse(
     (await run(setup.cli, ['doctor', '--deep'], { env, timeout: 15000 })).stdout,
@@ -179,8 +182,36 @@ try {
     ).stdout,
   );
   assert.deepEqual(repeated.changed, []);
+  // Use the persisted installation to restart and serve the bundled frontend.
+  await client.close();
+  client = undefined;
+  await run(setup.cli, ['daemon', 'restart'], { env, timeout: 15000 });
+  const dashboard = JSON.parse(
+    (await run(setup.cli, ['dashboard', '--no-open'], { env, timeout: 15000 })).stdout,
+  );
+  assert.ok(dashboard.urls.includes(dashboard.url));
+  const dashboardUrl = new URL(dashboard.url);
+  assert.equal(dashboardUrl.hostname, '127.0.0.1');
+  for (const url of dashboard.urls) {
+    assert.equal(new URL(url).port, dashboardUrl.port);
+    assert.notEqual(new URL(url).hostname, '0.0.0.0');
+  }
+  const html = await fetch(dashboardUrl.origin);
+  assert.match(await html.text(), /app\.js/);
+  const login = await fetch(`${dashboardUrl.origin}/api/session`, {
+    method: 'POST',
+    headers: { Origin: dashboardUrl.origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: dashboardUrl.hash.slice(1) }),
+  });
+  assert.equal(login.status, 200);
+  const state = await fetch(`${dashboardUrl.origin}/api/state`, {
+    headers: { Cookie: login.headers.get('set-cookie').split(';')[0] },
+  });
+  assert.equal((await state.json()).home, env.CMDR_HOME);
+  assert.equal((await fetch(`${dashboardUrl.origin}/app.css`)).status, 200);
+  assert.equal((await fetch(`${dashboardUrl.origin}/app.js`)).status, 200);
   console.log(
-    `npm package verified: ${pack.files.length} files, ${pack.size} compressed bytes; offline CLI, npx setup, repeat installation and seven MCP tools work after npx cache removal.`,
+    `npm package verified: ${pack.files.length} files, ${pack.size} compressed bytes; offline CLI, npx setup, repeat installation and nine MCP tools work after npx cache removal.`,
   );
 } finally {
   await client?.close();

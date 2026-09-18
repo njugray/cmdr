@@ -7,13 +7,14 @@ cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。�
 - 修改消息、角色、队列或持久化：从 `src/daemon/core.ts`、`src/daemon/store.ts` 和 `src/shared/protocol.ts`、`src/shared/schemas.ts` 定位；设计背景见 `docs/cmdr-design-v1.md`，实际实现与设计差异见 `docs/implementation.md`。
 - 修改身份、MCP 桥接或生命周期 hooks：查看 `src/mcp/`、`src/hook/` 和 `docs/agent-integration.md` 对应宿主章节。
 - 修改安装或分发：查看 `scripts/build.mjs`、`plugins/cmdr/` 下的宿主 manifests、`bin/` 启动脚本及 marketplace 文件；发布及授权流程见 `docs/publishing.md`。
+- 修改看板：查看 `src/daemon/dashboard.ts`、`src/daemon/dashboard-http.ts` 和 `src/dashboard/`；Task/Question/Artifact 与消息共用 SQLite，HTTP 用户提交不能伪装为 Agent，SSE 只发布提交后的失效通知。操作与容量约束见 `docs/dashboard.md`。
 - 修改用户操作方式：同步相关的 `README.md`、`docs/README.zh-CN.md` 及插件命令/技能说明。
 
 这些是按需入口，不要求每次修改前通读文档。设计文档中的历史原型记录不代表当前实现或验证结果。
 
 ## 实现约束
 
-- 对外 MCP 工具为 `join`、`list`、`send`、`report`、`ask`、`read`、`leave`。修改接口时保持 schema、daemon、桥接层和使用说明一致；Agent 标识是开放字符串，不限定为已知宿主枚举。
+- 对外 MCP 工具为 `join`、`list`、`send`、`report`、`ask`、`read`、`leave`、`task`、`artifact`。修改接口时保持 schema、daemon、桥接层和使用说明一致；Agent 标识是开放字符串，不限定为已知宿主枚举。
 - 消息读取即交付，不代表任务执行成功，任务通过 report + reply_to 独立记录接单和终态，没有 exactly-once 执行保证。连接离线、消息保留期和 unread=0 均不能释放未完成任务归属。保留 peek/history、优先级、关联回复，以及等待中的读取被取消后不消费消息的语义。
 - 身份重绑定和共享 MCP 进程中的会话隔离必须保留队列、成员关系及回复路由。具名 squad 的创建/加入保持原子性。
 - Hooks 只暴露消息元数据，不注入正文或附件；保留失败放行和 Stop 提醒节流行为。
@@ -38,7 +39,7 @@ cmdr 通过 MCP 连接已有的 Agent 会话，由本机 daemon 协调消息。�
 
 - `plugins/cmdr/dist/*.mjs` 和 `plugins/cmdr/THIRD_PARTY_NOTICES.txt` 是 Git 忽略的生成文件，通过 `npm run build` 更新，不直接手改或提交到 Git。`npm pack` / `npm publish` 在 prepack 阶段构建，将产物和许可证声明放入 npm 发布包。
 - 源码仓库安装插件前运行 `npm ci && npm run build`；安装端使用构建好的 npm 包时不需要开发依赖。不要把未构建的 Git 源码目录当作可直接运行的插件。
-- CI 验证 npm 包可在临时目录离线安装、暴露 7 个 MCP 工具，并检查构建产物没有被 Git 跟踪。宿主 manifests 和 marketplace 版本仍由 `package.json` 同步，构建后这些受跟踪文件不应有额外差异。
+- CI 验证 npm 包可在临时目录离线安装、暴露 9 个 MCP 工具，并检查构建产物没有被 Git 跟踪。宿主 manifests 和 marketplace 版本仍由 `package.json` 同步，构建后这些受跟踪文件不应有额外差异。
 - 已安装宿主使用插件缓存。涉及已安装版本的验证需要刷新/重装；相同版本的代码更新需要显式重启对应测试 daemon。
 - 在任务范围内完成实现、相关文档、必要构建及验证，并修复由本次变更引入的问题，不在第一版实现后提前停止。交付时简述改动、实际验证结果和仍受环境限制的部分。
 

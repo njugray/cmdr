@@ -10,6 +10,7 @@ import { config } from '../shared/config.js';
 import { Rpc } from '../shared/rpc.js';
 import { MIN_CLIENT_VERSION, PROTOCOL, VERSION, newer } from '../shared/version.js';
 import { fail } from '../shared/protocol.js';
+import { DashboardServer } from './dashboard-http.js';
 export async function startDaemon(home?: string) {
   process.umask(0o077);
   const p = paths(home);
@@ -31,6 +32,9 @@ export async function startDaemon(home?: string) {
   const peers = new Set<Rpc>();
   let idleSince = Date.now(),
     stopping = false;
+  const dashboard = new DashboardServer(core, () => {
+    idleSince = Date.now();
+  });
   rmSync(p.socket, { force: true });
   const server = createServer((socket) => {
     idleSince = Date.now();
@@ -80,6 +84,10 @@ export async function startDaemon(home?: string) {
         const result = standby.watch(params.sid, params.token, params.action);
         watcher = { sid: params.sid, token: params.token };
         return result;
+      }
+      if (method === 'admin.dashboard') {
+        if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
+        return dashboard.open();
       }
       if (method === 'admin.standby') {
         if (ctx.kind !== 'cli') fail('ROLE_NOT_ALLOWED');
@@ -131,6 +139,7 @@ export async function startDaemon(home?: string) {
     clearInterval(timer);
     clearInterval(wakeTimer);
     standby.close();
+    await dashboard.close();
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     for (const ctx of [...core.contexts]) core.disconnect(ctx);
     core.close();
@@ -172,6 +181,7 @@ export async function startDaemon(home?: string) {
           if (
             !peers.size &&
             !standby.active &&
+            !dashboard.active &&
             Date.now() - idleSince >= core.config.idleExitMinutes * 60_000
           )
             void stop();

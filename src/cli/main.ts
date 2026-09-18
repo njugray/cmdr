@@ -56,6 +56,7 @@ if (process.argv[2] === 'setup') {
       follow: { type: 'boolean' },
       full: { type: 'boolean' },
       json: { type: 'boolean' },
+      'no-open': { type: 'boolean' },
       help: { type: 'boolean' },
     },
   });
@@ -154,9 +155,22 @@ if (process.argv[2] === 'setup') {
   try {
     if (v.help)
       process.stdout.write(
-        'cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
+        'cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
       );
-    else if (cmd === 'config') {
+    else if (cmd === 'dashboard') {
+      const result = await call('admin.dashboard', {}, true);
+      print(result);
+      if (!v['no-open']) {
+        try {
+          execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [result.url], {
+            stdio: 'ignore',
+            timeout: 5000,
+          });
+        } catch {
+          console.error('Open the printed URL in a local browser (valid for 60 seconds).');
+        }
+      }
+    } else if (cmd === 'config') {
       const agent = v.agent || 'generic';
       if (!/^[a-z][a-z0-9_-]{0,63}$/.test(agent))
         throw new Error('Invalid --agent: use lowercase letters, digits, underscores or hyphens.');

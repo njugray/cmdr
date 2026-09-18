@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { quickCall } from '../shared/client.js';
 import { diagnosticStatus } from '../shared/diagnostics.js';
+import { schemas } from '../shared/schemas.js';
 const exec = promisify(execFile);
 export async function inspectInstallation(root: string) {
   // Run the check shipped with this intact installation against the selected target.
@@ -82,11 +83,8 @@ export async function probeMcp(root: string) {
         );
         const result = await request('tools/list', {});
         const names = result.tools?.map((t: any) => t.name).sort();
-        if (
-          JSON.stringify(names) !==
-          JSON.stringify(['ask', 'join', 'leave', 'list', 'read', 'report', 'send'])
-        )
-          throw new Error('Expected seven cmdr tools');
+        if (JSON.stringify(names) !== JSON.stringify(Object.keys(schemas).sort()))
+          throw new Error('Unexpected cmdr tool set');
         // A successful tool call checks daemon availability as well as tool registration.
         const call = await request('tools/call', { name: 'list', arguments: {} });
         if (call.isError) throw new Error('MCP tool cannot reach daemon');

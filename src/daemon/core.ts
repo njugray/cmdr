@@ -20,6 +20,8 @@ import { messageId, provisionalId, squadId } from '../shared/ids.js';
 import { recommendedWait } from '../shared/env.js';
 import type { Config } from '../shared/config.js';
 import type { Paths } from '../shared/paths.js';
+import { Dashboard } from './dashboard.js';
+import { answerSchema, userMessageSchema } from '../shared/dashboard-schemas.js';
 
 // Leave room for envelope fields and UTF-8 escaping in a single RPC frame.
 function bounded<T>(values: T[], limit: number): T[] {
@@ -53,6 +55,8 @@ interface Waiter {
   timer: NodeJS.Timeout;
 }
 export class Core {
+  readonly dashboard: Dashboard;
+  readonly dashboardObservers = new Set<(squads: (string | null)[]) => void>();
   configureStandby?: (sid: string, mode: string) => unknown;
   contexts = new Set<Context>();
   private waiters = new Set<Waiter>();
@@ -63,6 +67,9 @@ export class Core {
     public paths: Paths,
     public config: Config,
   ) {
+    this.dashboard = new Dashboard(store, (kind, squad, id) =>
+      this.record(kind, squad, { data: { id } }),
+    );
     for (const s of store.sessions()) {
       s.presence = s.transport === 'cli' ? 'cli' : 'offline';
       store.saveSession(s);
@@ -256,6 +263,7 @@ export class Core {
     return this.store.appendEvent({ at: Date.now(), kind, channel, ...detail });
   }
   private messageEvent(kind: string, m: Message, reason?: string) {
+    this.dashboard.syncCommand(m);
     this.record(kind, m.squad_id, {
       from_sid: m.from_sid,
       to_sid: m.to_sid,
@@ -266,7 +274,8 @@ export class Core {
     });
   }
   publishEvents(after: number) {
-    for (const event of this.store.events(after))
+    const events = this.store.events(after);
+    for (const event of events)
       for (const c of this.contexts) {
         const t = c.tail;
         if (!t || event.event_seq <= t.after) continue;
@@ -294,6 +303,58 @@ export class Core {
               },
         );
       }
+    if (events.length) {
+      const squads = [...new Set(events.map((e) => e.channel))];
+      for (const notify of this.dashboardObservers) notify(squads);
+    }
+  }
+  dashboardSnapshot(squad: string) {
+    return {
+      ...this.dashboard.snapshot(squad),
+      members: this.store
+        .sessions()
+        .filter(
+          (s) =>
+            s.squad_id === squad || this.store.commands(s.sid).some((m) => m.squad_id === squad),
+        )
+        .map((s) => this.view(s, false, squad)),
+    };
+  }
+  submitUserAnswer(input: unknown) {
+    const parsed = answerSchema.safeParse(input);
+    if (!parsed.success) fail('INVALID_ARGUMENT', parsed.error.message);
+    return this.atomic(() =>
+      this.dashboard.answer(parsed.data, (q, body, data) =>
+        this.enqueue(null, q.squad_id, `squad:${q.squad_id}`, 'answer', body, {
+          data,
+          reply_to: q.id,
+          attn: true,
+          user: true,
+        }),
+      ),
+    );
+  }
+  submitUserMessage(input: unknown) {
+    const parsed = userMessageSchema.safeParse(input);
+    if (!parsed.success) fail('INVALID_ARGUMENT', parsed.error.message);
+    const p = parsed.data;
+    return this.atomic(() => {
+      // Reuse the queue's persistence and deduplicate retries while the message is retained.
+      const id = `m_user_${p.submission_id}`;
+      const prior = this.store.message(id);
+      if (prior && (prior.squad_id !== p.squad_id || prior.body !== p.text))
+        fail('SUBMISSION_CONFLICT', 'Submission ID was already used with different content');
+      if (prior) return { message_id: prior.id, received_at: prior.created_at };
+      const squad = this.store.squad(p.squad_id) || fail('SQUAD_NOT_FOUND');
+      if (squad.status === 'dissolved') fail('INVALID_ARGUMENT', 'Squad is closed');
+      const message = this.enqueue(null, squad.id, `squad:${squad.id}`, 'info', p.text, {
+        id,
+        user: true,
+        attn: true,
+        data: { source: 'dashboard', submission_id: p.submission_id },
+      });
+      return { message_id: message.id, received_at: message.created_at };
+    });
   }
   private isWakeEvent(event: LifecycleEvent, sid?: string) {
     return (
@@ -514,6 +575,7 @@ export class Core {
     type: MessageType,
     body: string,
     opts: {
+      id?: string;
       priority?: number;
       data?: any;
       reply_to?: string;
@@ -521,6 +583,8 @@ export class Core {
       operator?: boolean;
       direct?: boolean;
       terminalAck?: boolean;
+      task_id?: string;
+      user?: boolean;
     } = {},
   ) {
     if (
@@ -530,15 +594,15 @@ export class Core {
     )
       fail('QUEUE_FULL', `Queue for ${to} is full`);
     const m: Message = {
-      id: messageId(),
+      id: opts.id || messageId(),
       seq: 0,
       squad_id: q,
       type,
       priority:
         opts.priority ??
         (['command', 'cancel', 'ask', 'answer'].includes(type) ? 0 : type === 'report' ? 2 : 1),
-      from_sid: from?.sid || (opts.operator ? 'operator' : 'system'),
-      from_role: from?.role || (opts.operator ? 'operator' : 'system'),
+      from_sid: from?.sid || (opts.user ? 'user' : opts.operator ? 'operator' : 'system'),
+      from_role: from?.role || (opts.user ? 'user' : opts.operator ? 'operator' : 'system'),
       from_name: from?.name || null,
       to_sid: to,
       body,
@@ -549,6 +613,7 @@ export class Core {
       direct: opts.direct,
       created_at: Date.now(),
       delivered_at: null,
+      ...(opts.task_id ? { task_id: opts.task_id } : {}),
     };
     if (type === 'command') m.work = { state: 'queued', updated_at: m.created_at };
     this.store.insert(m);
@@ -829,6 +894,12 @@ export class Core {
     if (p.type === 'cancel' && (!p.reply_to || p.reassign))
       fail('INVALID_ARGUMENT', 'cancel requires reply_to=<command id>');
     const previous = p.reassign ? this.store.message(p.reassign) : undefined;
+    const taskId = previous?.task_id || p.task_id;
+    if (p.task_id && previous?.task_id && p.task_id !== previous.task_id)
+      fail('INVALID_ARGUMENT', 'Reassignment must preserve task_id');
+    if (taskId && (p.type !== 'command' || recipients.length !== 1))
+      fail('INVALID_ARGUMENT', 'task_id requires one command recipient');
+    const task = taskId ? this.dashboard.beforeDispatch(taskId, qid, previous) : undefined;
     if (
       p.reassign &&
       (p.type !== 'command' ||
@@ -842,7 +913,7 @@ export class Core {
     if (previous?.work?.replacement_id) fail('ALREADY_REASSIGNED');
     if (previous?.task_key && p.task_key && p.task_key !== previous.task_key)
       fail('INVALID_ARGUMENT', 'Reassignment must preserve the original task_key');
-    const taskKey = previous?.task_key || p.task_key;
+    const taskKey = previous?.task_key || p.task_key || taskId;
     if (p.task_key && (p.type !== 'command' || recipients.length !== 1))
       fail(
         'INVALID_ARGUMENT',
@@ -892,6 +963,7 @@ export class Core {
         reply_to: command.id,
         attn: true,
         operator: ctx.kind === 'cli',
+        task_id: taskId,
       });
     };
     if (previous)
@@ -919,11 +991,13 @@ export class Core {
         attn: p.attention,
         direct: !(Array.isArray(p.to) ? p.to : [p.to]).includes('all'),
         operator: ctx.kind === 'cli',
+        task_id: taskId,
       });
       if (p.type === 'command') {
         m.task_key = taskKey;
         if (previous && !terminalWork(previous)) m.blocked_by = previous.id;
         this.store.saveMessage(m);
+        if (task) this.dashboard.attach(this.store.dashboardRecord('task', task.id)!, m, s);
         if (previous) {
           previous.work!.replacement_id = m.id;
           this.store.saveMessage(previous);
@@ -1007,6 +1081,12 @@ export class Core {
       terminalAck,
     });
     if (!ask) {
+      if (command)
+        this.dashboard.syncCommand(command, {
+          status: p.status,
+          message: p.message,
+          at: m.created_at,
+        });
       s.last_status = { status: p.status, message: p.message.slice(0, 300) };
       s.last_progress_at = Date.now();
       s.activity_at = Date.now();
@@ -1270,6 +1350,7 @@ export class Core {
         if (
           all ||
           (q.status === 'dissolved' &&
+            !this.store.hasDashboard(q.id) &&
             q.updated_at < cutoff &&
             !this.members(q.id).length &&
             !this.store.commands().some((m) => m.squad_id === q.id))
@@ -1281,6 +1362,7 @@ export class Core {
         ctx.sid = undefined;
         if (ctx.kind === 'mcp') ctx.notify('session.reset', {});
       }
+    if (all) for (const notify of this.dashboardObservers) notify([null]);
     for (const [sid, times] of this.rates)
       if (!times.some((t) => t > Date.now() - 60000)) this.rates.delete(sid);
     this.refreshFlags();
@@ -1409,6 +1491,8 @@ export class Core {
       'msg.read': 'read',
       'msg.peek': 'read',
       'msg.history': 'read',
+      'dashboard.task': 'task',
+      'dashboard.artifact': 'artifact',
     };
     const tool = map[method] || fail('INVALID_ARGUMENT', `Unknown method ${method}`);
     const { squad: operatorSquad, ...sendArgs } = params;
@@ -1432,6 +1516,28 @@ export class Core {
       );
     }
     if (tool === 'ask') {
+      if (p.target === 'user')
+        return this.envelope(
+          ctx,
+          this.atomic(() => this.dashboard.question(this.member(ctx, 'commander'), p)),
+        );
+      if (
+        !p.question ||
+        p.action !== 'create' ||
+        p.id ||
+        p.task_id ||
+        p.version ||
+        p.kind ||
+        p.options ||
+        p.artifact_ids ||
+        p.result ||
+        p.status ||
+        p.description
+      )
+        fail(
+          'INVALID_ARGUMENT',
+          'Executor asks require question; use target=user for dashboard questions',
+        );
       const sent = this.atomic(() => this.reportOrAsk(ctx, p, true));
       if (p.wait) await this.wait(ctx, p.wait, sent.id, signal);
       if (signal?.aborted) fail('REQUEST_CANCELLED');
@@ -1453,6 +1559,10 @@ export class Core {
           return this.send(ctx, p, operatorSquad);
         case 'report':
           return this.reportOrAsk(ctx, p, false);
+        case 'task':
+          return this.dashboard.task(this.member(ctx), p);
+        case 'artifact':
+          return this.dashboard.artifact(this.member(ctx), p);
       }
     });
     if (tool === 'join' && p.standby && this.configureStandby) {

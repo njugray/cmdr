@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
-import { readFile, writeFile, mkdir, readdir, chmod } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, chmod, rm, copyFile } from 'node:fs/promises';
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 await mkdir('plugins/cmdr/dist', { recursive: true });
 // The standalone skill owns the role protocol. Keep the existing plugin skill
@@ -32,6 +32,20 @@ const result = await build({
   },
   define: { __VERSION__: JSON.stringify(pkg.version) },
 });
+await rm('plugins/cmdr/dist/dashboard', { recursive: true, force: true });
+const frontend = await build({
+  metafile: true,
+  entryPoints: { app: 'src/dashboard/main.tsx' },
+  outdir: 'plugins/cmdr/dist/dashboard',
+  bundle: true,
+  platform: 'browser',
+  target: ['es2022'],
+  format: 'esm',
+  minify: true,
+  legalComments: 'none',
+  define: { 'process.env.NODE_ENV': '"production"' },
+});
+await copyFile('src/dashboard/index.html', 'plugins/cmdr/dist/dashboard/index.html');
 for (const entry of ['cli', 'mcp', 'hook', 'daemon'])
   await chmod(`plugins/cmdr/dist/${entry}.mjs`, 0o755);
 for (const host of ['claude', 'codex', 'zcode']) {
@@ -49,7 +63,10 @@ for (const path of ['marketplace.json', '.claude-plugin/marketplace.json']) {
 
 // Bundled runtime dependencies must retain their license notices.
 const packages = new Set();
-for (const file of Object.keys(result.metafile.inputs)) {
+for (const file of [
+  ...Object.keys(result.metafile.inputs),
+  ...Object.keys(frontend.metafile.inputs),
+]) {
   const match = file.match(/node_modules\/((?:@[^/]+\/)?[^/]+)/);
   if (match) packages.add(match[1]);
 }
