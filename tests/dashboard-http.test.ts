@@ -23,7 +23,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
   vi.mocked(os.networkInterfaces).mockReset();
 });
-async function setup() {
+async function setup(log: (message: string) => void = () => {}) {
   const f = fixture();
   // HTTP behavior uses disposable assets; production bundles are checked by verify:package.
   const assetRoot = join(f.home, 'dashboard');
@@ -32,7 +32,7 @@ async function setup() {
     writeFileSync(join(assetRoot, name), body);
   }
   const { c, id } = await f.squad();
-  const server = new DashboardServer(f.core, () => {}, pathToFileURL(assetRoot + '/'));
+  const server = new DashboardServer(f.core, () => {}, pathToFileURL(assetRoot + '/'), log);
   cleanup.push(async () => {
     await server.close();
     f.close();
@@ -458,4 +458,20 @@ it('advertises each IPv4 address with its own single-use token and enforces same
   expect(
     (await request(urls[1], '/api/state', undefined, urls[1].origin, login.cookie)).status,
   ).toBe(403);
+});
+it('logs unexpected handler failures with their stack and answers 500', async () => {
+  const lines: string[] = [];
+  const x = await setup((line) => lines.push(line));
+  expect((await x.post('/api/messages', {})).status).toBe(400);
+  expect(lines).toEqual([]);
+  x.f.core.submitUserMessage = () => {
+    throw new TypeError('boom');
+  };
+  const response = await x.post('/api/messages', {
+    squad_id: x.id,
+    submission_id: randomUUID(),
+    text: 'hello',
+  });
+  expect(response.status).toBe(500);
+  expect(lines.join('\n')).toContain('internal error in POST /api/messages: TypeError: boom');
 });

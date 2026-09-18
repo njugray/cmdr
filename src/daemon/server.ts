@@ -4,7 +4,7 @@ import { chmodSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { Core, type Context } from './core.js';
 import { Store } from './store.js';
 import { acquireLock, releaseLock } from './lock.js';
-import { logger } from './logger.js';
+import { logger, logInternal } from './logger.js';
 import { paths, prepare } from '../shared/paths.js';
 import { config } from '../shared/config.js';
 import { Rpc } from '../shared/rpc.js';
@@ -32,9 +32,14 @@ export async function startDaemon(home?: string) {
   const peers = new Set<Rpc>();
   let idleSince = Date.now(),
     stopping = false;
-  const dashboard = new DashboardServer(core, () => {
-    idleSince = Date.now();
-  });
+  const dashboard = new DashboardServer(
+    core,
+    () => {
+      idleSince = Date.now();
+    },
+    undefined,
+    log,
+  );
   rmSync(p.socket, { force: true });
   const server = createServer((socket) => {
     idleSince = Date.now();
@@ -44,7 +49,7 @@ export async function startDaemon(home?: string) {
     core.connect(ctx);
     let greeted = false;
     let watcher: { sid: string; token: string } | undefined;
-    rpc.handler = async (method, params, signal) => {
+    const handle: NonNullable<Rpc['handler']> = async (method, params, signal) => {
       if (!greeted && method !== 'hello')
         fail(
           'PROTOCOL_MISMATCH',
@@ -118,6 +123,14 @@ export async function startDaemon(home?: string) {
       return method === 'admin.status'
         ? { ...result, version: VERSION, protocol: PROTOCOL, pid: process.pid }
         : result;
+    };
+    rpc.handler = async (method, params, signal) => {
+      try {
+        return await handle(method, params, signal);
+      } catch (e) {
+        logInternal(log, method, e);
+        throw e;
+      }
     };
     rpc.on('close', () => {
       peers.delete(rpc);
