@@ -1,4 +1,9 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Server } from 'node:http';
+import { createAdaptorServer, type HttpBindings } from '@hono/node-server';
+import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { getCookie, setCookie } from 'hono/cookie';
+import { streamSSE } from 'hono/streaming';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Core } from './core.js';
@@ -12,10 +17,9 @@ const artifactPolicy =
   "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
 
 export class DashboardServer {
-  private server = createServer((req, res) => {
-    void this.handle(req, res);
-  });
-  private streams = new Set<ServerResponse>();
+  private app = new Hono<{ Bindings: HttpBindings }>();
+  private server: Server;
+  private streams = new Set<{ send: (data: string) => void; close: () => void }>();
   private openings = new Map<string, number>();
   private session = token();
   private cookie = '';
@@ -24,16 +28,20 @@ export class DashboardServer {
   private starting?: Promise<void>;
   private assets = new Map<string, { body: Buffer; type: string }>();
   private notify = (squads: (string | null)[]) => {
-    for (const stream of this.streams) {
-      if (stream.writableLength > 1024 * 1024) stream.end();
-      else stream.write(`data: ${JSON.stringify({ squads })}\n\n`);
-    }
+    const data = `data: ${JSON.stringify({ squads })}\n\n`;
+    for (const stream of this.streams) stream.send(data);
   };
   constructor(
     private core: Core,
     private touch: () => void,
     private assetRoot = new URL('./dashboard/', import.meta.url),
-  ) {}
+  ) {
+    this.routes();
+    this.server = createAdaptorServer({
+      fetch: this.app.fetch,
+      overrideGlobalObjects: false,
+    }) as Server;
+  }
   get active() {
     return this.streams.size > 0;
   }
@@ -72,7 +80,7 @@ export class DashboardServer {
     this.cookie = `cmdr_dashboard_${address.port}`;
     this.core.dashboardObservers.add(this.notify);
     this.heartbeat = setInterval(() => {
-      for (const stream of this.streams) stream.write(': heartbeat\n\n');
+      for (const stream of this.streams) stream.send(': heartbeat\n\n');
     }, 20_000);
     this.heartbeat.unref();
   }
@@ -80,7 +88,7 @@ export class DashboardServer {
     if (this.starting) await this.starting.catch(() => {});
     clearInterval(this.heartbeat);
     this.core.dashboardObservers.delete(this.notify);
-    for (const stream of this.streams) stream.end();
+    for (const stream of this.streams) stream.close();
     this.streams.clear();
     if (this.server.listening)
       await new Promise<void>((resolve) => {
@@ -88,160 +96,150 @@ export class DashboardServer {
         this.server.closeAllConnections();
       });
   }
-  private async body(req: IncomingMessage) {
-    if (req.headers['content-type']?.split(';')[0] !== 'application/json')
-      fail('INVALID_ARGUMENT', 'Expected application/json');
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > 64 * 1024) fail('MESSAGE_TOO_LARGE');
-      chunks.push(chunk);
-    }
+  private async body(c: Context) {
     try {
-      return JSON.parse(Buffer.concat(chunks).toString());
+      return await c.req.json();
     } catch {
       fail('INVALID_ARGUMENT', 'Invalid JSON');
     }
   }
-  private json(res: ServerResponse, data: unknown, status = 200) {
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify(data));
+  private events(c: Context<{ Bindings: HttpBindings }>) {
+    const response = streamSSE(c, async (stream) => {
+      let pendingBytes = 0;
+      let closed = false;
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const client = {
+        send: (data: string) => {
+          if (closed) return;
+          const bytes = Buffer.byteLength(data);
+          // Bound queued writes as well as the Node socket buffer for slow readers.
+          if (pendingBytes + bytes + c.env.outgoing.writableLength > 1024 * 1024) {
+            client.close();
+            return;
+          }
+          pendingBytes += bytes;
+          void stream.write(data).finally(() => {
+            pendingBytes -= bytes;
+          });
+        },
+        close: () => {
+          if (closed) return;
+          closed = true;
+          this.streams.delete(client);
+          this.touch();
+          stream.abort();
+          finish();
+        },
+      };
+      stream.onAbort(client.close);
+      // Subscribe before confirming connection; onopen reads the snapshot.
+      this.streams.add(client);
+      client.send(': connected\n\n');
+      await done;
+    });
+    response.headers.set('Cache-Control', 'no-store');
+    response.headers.set('X-Accel-Buffering', 'no');
+    return response;
   }
-  private async handle(req: IncomingMessage, res: ServerResponse) {
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-    );
-    try {
-      if (req.headers.host !== this.origin.slice('http://'.length)) fail('FORBIDDEN');
-      if (
-        (req.headers.origin && req.headers.origin !== this.origin) ||
-        req.headers['sec-fetch-site'] === 'cross-site'
-      )
+  private routes() {
+    const app = this.app;
+    app.use('*', async (c, next) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('X-Content-Type-Options', 'nosniff');
+      c.header('Referrer-Policy', 'no-referrer');
+      c.header(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      );
+      if (c.req.header('host') !== this.origin.slice('http://'.length)) fail('FORBIDDEN');
+      const origin = c.req.header('origin');
+      if ((origin && origin !== this.origin) || c.req.header('sec-fetch-site') === 'cross-site')
         fail('FORBIDDEN');
-      const url = new URL(req.url || '/', this.origin);
-      if (req.method === 'GET' && ['/', '/app.js', '/app.css'].includes(url.pathname)) {
-        const asset = this.assets.get(url.pathname === '/' ? 'index.html' : url.pathname.slice(1))!;
-        res.writeHead(200, { 'Content-Type': asset.type });
-        res.end(asset.body);
-        return;
-      }
-      if (req.method === 'POST' && req.headers.origin !== this.origin) fail('FORBIDDEN');
-      if (req.method === 'POST' && url.pathname === '/api/session') {
-        const body = await this.body(req);
-        const expires = typeof body?.token === 'string' ? this.openings.get(body.token) : undefined;
-        if (!expires || expires < Date.now())
-          fail('UNAUTHORIZED', 'Open the dashboard again with cmdr dashboard');
-        this.openings.delete(body.token);
-        res.setHeader(
-          'Set-Cookie',
-          `${this.cookie}=${this.session}; HttpOnly; SameSite=Strict; Path=/`,
-        );
-        this.json(res, { ok: true });
-        return;
-      }
-      const credential =
-        (req.headers.cookie || '')
-          .split(';')
-          .map((s) => s.trim())
-          .find((s) => s.startsWith(`${this.cookie}=`))
-          ?.slice(this.cookie.length + 1) || '';
-      if (!same(credential, this.session))
+      if (c.req.method === 'POST' && origin !== this.origin) fail('FORBIDDEN');
+      // Hono implicitly maps HEAD to GET; never create an SSE subscription for HEAD.
+      if (!['GET', 'POST'].includes(c.req.method)) fail('NOT_FOUND');
+      await next();
+    });
+    for (const [path, name] of [
+      ['/', 'index.html'],
+      ['/app.js', 'app.js'],
+      ['/app.css', 'app.css'],
+    ]) {
+      app.get(path, (c) => {
+        const asset = this.assets.get(name)!;
+        return c.body(new Uint8Array(asset.body), 200, { 'Content-Type': asset.type });
+      });
+    }
+    const jsonBody = [
+      async (c: Context, next: () => Promise<void>) => {
+        if (c.req.header('content-type')?.split(';')[0] !== 'application/json')
+          fail('INVALID_ARGUMENT', 'Expected application/json');
+        await next();
+      },
+      bodyLimit({ maxSize: 64 * 1024, onError: () => fail('MESSAGE_TOO_LARGE') }),
+    ] as const;
+    app.post('/api/session', ...jsonBody, async (c) => {
+      const body = await this.body(c);
+      const expires = typeof body?.token === 'string' ? this.openings.get(body.token) : undefined;
+      if (!expires || expires < Date.now())
+        fail('UNAUTHORIZED', 'Open the dashboard again with cmdr dashboard');
+      this.openings.delete(body.token);
+      setCookie(c, this.cookie, this.session, { httpOnly: true, sameSite: 'Strict', path: '/' });
+      return c.json({ ok: true });
+    });
+    app.use('*', async (c, next) => {
+      if (!same(getCookie(c, this.cookie) || '', this.session))
         fail('UNAUTHORIZED', 'Open the dashboard with cmdr dashboard');
       this.touch();
-      if (req.method === 'GET' && url.pathname === '/api/events') {
-        this.streams.add(res); // Subscribe before confirming connection; onopen reads the snapshot.
-        res.on('close', () => {
-          this.streams.delete(res);
-          this.touch();
-        });
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no',
-        });
-        res.flushHeaders();
-        res.write(': connected\n\n');
-        return;
-      }
-      if (req.method === 'GET' && url.pathname === '/api/state') {
-        this.json(res, {
-          home: this.core.paths.home,
-          version: VERSION,
-          squads: this.core.dashboard.summaries(),
-        });
-        return;
-      }
-      const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-      if (
-        req.method === 'GET' &&
-        parts[0] === 'api' &&
-        parts[1] === 'tasks' &&
-        parts.length === 3
-      ) {
-        const task = this.core.store.dashboardRecord('task', parts[2]) || fail('NOT_FOUND');
-        const offset = Number(url.searchParams.get('offset') || 0);
-        if (!Number.isSafeInteger(offset) || offset < 0) fail('INVALID_ARGUMENT');
-        this.json(res, this.core.dashboard.taskDetail(task.id, task.squad_id, offset));
-        return;
-      }
-      if (
-        req.method === 'GET' &&
-        parts[0] === 'api' &&
-        parts[1] === 'squads' &&
-        parts.length === 3
-      ) {
-        this.json(res, this.core.dashboardSnapshot(parts[2]));
-        return;
-      }
-      if (
-        req.method === 'GET' &&
-        parts[0] === 'api' &&
-        parts[1] === 'submissions' &&
-        parts.length === 3
-      ) {
-        const submission = this.core.store.submission(parts[2]) || fail('NOT_FOUND');
-        this.json(res, {
-          ...submission,
-          snapshot: {
-            ...submission.snapshot,
-            artifacts: submission.snapshot.artifacts.map(({ html: _html, ...a }) => a),
-          },
-        });
-        return;
-      }
-      if (req.method === 'GET' && parts[0] === 'artifacts' && parts.length === 3) {
-        const submission = url.searchParams.get('submission');
-        const artifact = submission
-          ? this.core.store
-              .submission(submission)
-              ?.snapshot.artifacts.find((a) => a.id === parts[1])
-          : this.core.store.dashboardRecord('artifact', parts[1]);
-        if (!artifact) fail('NOT_FOUND');
-        if (artifact.version !== Number(parts[2])) fail('VERSION_CONFLICT');
-        res.setHeader('Content-Security-Policy', artifactPolicy);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(artifact.html);
-        return;
-      }
-      if (req.method === 'POST' && url.pathname === '/api/answers') {
-        this.json(res, this.core.submitUserAnswer(await this.body(req)));
-        return;
-      }
-      if (req.method === 'POST' && url.pathname === '/api/messages') {
-        this.json(res, this.core.submitUserMessage(await this.body(req)));
-        return;
-      }
-      fail('NOT_FOUND');
-    } catch (error) {
-      if (res.headersSent) {
-        res.end();
-        return;
-      }
+      await next();
+    });
+    app.get('/api/events', (c) => this.events(c));
+    app.get('/api/state', (c) =>
+      c.json({
+        home: this.core.paths.home,
+        version: VERSION,
+        squads: this.core.dashboard.summaries(),
+      }),
+    );
+    app.get('/api/tasks/:id', (c) => {
+      const task = this.core.store.dashboardRecord('task', c.req.param('id')) || fail('NOT_FOUND');
+      const offset = Number(c.req.query('offset') || 0);
+      if (!Number.isSafeInteger(offset) || offset < 0) fail('INVALID_ARGUMENT');
+      return c.json(this.core.dashboard.taskDetail(task.id, task.squad_id, offset));
+    });
+    app.get('/api/squads/:id', (c) => c.json(this.core.dashboardSnapshot(c.req.param('id'))));
+    app.get('/api/submissions/:id', (c) => {
+      const submission = this.core.store.submission(c.req.param('id')) || fail('NOT_FOUND');
+      return c.json({
+        ...submission,
+        snapshot: {
+          ...submission.snapshot,
+          artifacts: submission.snapshot.artifacts.map(({ html: _html, ...a }) => a),
+        },
+      });
+    });
+    app.get('/artifacts/:id/:version', (c) => {
+      const submission = c.req.query('submission');
+      const id = c.req.param('id');
+      const artifact = submission
+        ? this.core.store.submission(submission)?.snapshot.artifacts.find((a) => a.id === id)
+        : this.core.store.dashboardRecord('artifact', id);
+      if (!artifact) fail('NOT_FOUND');
+      if (artifact.version !== Number(c.req.param('version'))) fail('VERSION_CONFLICT');
+      c.header('Content-Security-Policy', artifactPolicy);
+      return c.html(artifact.html);
+    });
+    app.post('/api/answers', ...jsonBody, async (c) =>
+      c.json(this.core.submitUserAnswer(await this.body(c))),
+    );
+    app.post('/api/messages', ...jsonBody, async (c) =>
+      c.json(this.core.submitUserMessage(await this.body(c))),
+    );
+    app.notFound(() => fail('NOT_FOUND'));
+    app.onError((error, c) => {
       const e =
         error instanceof CmdrError
           ? error
@@ -262,7 +260,7 @@ export class DashboardServer {
                     : e.code === 'INTERNAL_ERROR'
                       ? 500
                       : 400;
-      this.json(res, { code: e.code, message: e.message }, status);
-    }
+      return c.json({ code: e.code, message: e.message }, status);
+    });
   }
 }

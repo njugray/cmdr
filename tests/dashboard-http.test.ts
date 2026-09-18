@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { fixture } from './helpers.js';
 import { DashboardServer } from '../src/daemon/dashboard-http.js';
 import { randomUUID } from 'node:crypto';
-import { get as httpGet } from 'node:http';
+import { get as httpGet, request as httpRequest } from 'node:http';
 
 const assets = {
   'index.html': '<!doctype html><html><body>Dashboard HTTP fixture</body></html>',
@@ -227,4 +227,142 @@ it('routes authenticated user notes to the commander inbox without allowing agen
   expect((await x.post('/api/messages', { ...input, submission_id: randomUUID() })).status).toBe(
     400,
   );
+});
+
+it('keeps JSON errors and limits both fixed-length and chunked bodies before changing state', async () => {
+  const x = await setup();
+  const before = x.f.core.dashboardSnapshot(x.id);
+  for (const [body, type, status, code] of [
+    ['{', 'application/json', 400, 'INVALID_ARGUMENT'],
+    ['{}', 'text/plain', 400, 'INVALID_ARGUMENT'],
+    [JSON.stringify({ text: 'x'.repeat(64 * 1024) }), 'application/json', 413, 'MESSAGE_TOO_LARGE'],
+  ] as const) {
+    const response = await fetch(`${x.origin}/api/answers`, {
+      method: 'POST',
+      headers: { Cookie: x.cookie, Origin: x.origin, 'Content-Type': type },
+      body,
+    });
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+  }
+  const chunked = await new Promise<{ status: number | undefined; body: string }>(
+    (resolve, reject) => {
+      const req = httpRequest(
+        `${x.origin}/api/answers`,
+        {
+          method: 'POST',
+          headers: {
+            Cookie: x.cookie,
+            Origin: x.origin,
+            'Content-Type': 'application/json',
+            'Transfer-Encoding': 'chunked',
+          },
+        },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => {
+            body += chunk;
+          });
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+          res.on('error', reject);
+        },
+      );
+      req.on('error', reject);
+      req.write('"' + 'x'.repeat(32 * 1024));
+      req.end('x'.repeat(32 * 1024) + '"');
+    },
+  );
+  expect(chunked.status).toBe(413);
+  expect(JSON.parse(chunked.body)).toMatchObject({ code: 'MESSAGE_TOO_LARGE' });
+  expect(x.f.core.dashboardSnapshot(x.id).questions).toEqual(before.questions);
+});
+
+it('preserves private route authentication, encoded task IDs and pagination validation', async () => {
+  const x = await setup();
+  const { task } = await x.f.core.handle(x.c, 'dashboard.task', {
+    action: 'create',
+    title: 'HTTP detail',
+  });
+  const path = `/api/tasks/${encodeURIComponent(task.id)}`;
+  expect(await (await x.get(path)).json()).toMatchObject({ task: { id: task.id } });
+  for (const offset of ['-1', '0.5', 'NaN']) {
+    const response = await x.get(`${path}?offset=${offset}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'INVALID_ARGUMENT' });
+  }
+  for (const path of ['/api/events', '/api/tasks/missing', '/artifacts/missing/1']) {
+    expect((await fetch(x.origin + path)).status).toBe(401);
+  }
+  expect(
+    (
+      await fetch(`${x.origin}/api/state`, {
+        headers: { Cookie: x.cookie, 'Sec-Fetch-Site': 'cross-site' },
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (await fetch(`${x.origin}/api/messages`, { method: 'POST', headers: { Cookie: x.cookie } }))
+      .status,
+  ).toBe(403);
+  const missing = await x.get('/api/not-a-route');
+  expect(missing.status).toBe(404);
+  expect(await missing.json()).toMatchObject({ code: 'NOT_FOUND' });
+});
+
+it('does not subscribe on HEAD and closes every SSE stream when the server stops', async () => {
+  const x = await setup();
+  expect(
+    (await fetch(`${x.origin}/api/events`, { method: 'HEAD', headers: { Cookie: x.cookie } }))
+      .status,
+  ).toBe(404);
+  expect(x.server.active).toBe(false);
+  const streams = await Promise.all([x.get('/api/events'), x.get('/api/events')]);
+  const readers = streams.map((res) => res.body!.getReader());
+  for (let i = 0; i < streams.length; i++) {
+    expect(streams[i].headers.get('cache-control')).toBe('no-store');
+    expect(new TextDecoder().decode((await readers[i].read()).value)).toContain(': connected');
+  }
+  expect(x.server.active).toBe(true);
+  const ends = readers.map(async (reader) => {
+    try {
+      while (!(await reader.read()).done) {
+        /* Drain any final frame. */
+      }
+    } catch {
+      /* Socket shutdown is also terminal. */
+    }
+  });
+  await x.server.close();
+  await Promise.all(ends);
+  expect(x.server.active).toBe(false);
+  expect(x.f.core.dashboardObservers.size).toBe(0);
+});
+
+it('bounds queued SSE writes and allows a fresh subscription after dropping a slow stream', async () => {
+  const x = await setup();
+  const response = await x.get('/api/events');
+  const reader = response.body!.getReader();
+  await reader.read();
+  // A synchronous burst cannot drain until the event loop resumes.
+  for (let i = 0; i < 80; i++) {
+    for (const observer of x.f.core.dashboardObservers) observer(['s'.repeat(16 * 1024)]);
+  }
+  expect(x.server.active).toBe(false);
+  while (!(await reader.read()).done) {
+    /* Drain the closed response. */
+  }
+  const abort = new AbortController();
+  const resumed = await fetch(`${x.origin}/api/events`, {
+    headers: { Cookie: x.cookie },
+    signal: abort.signal,
+  });
+  const resumedReader = resumed.body!.getReader();
+  await resumedReader.read();
+  for (const observer of x.f.core.dashboardObservers) observer([x.id]);
+  expect(new TextDecoder().decode((await resumedReader.read()).value)).toContain(x.id);
+  abort.abort();
+  await expect.poll(() => x.server.active).toBe(false);
 });
