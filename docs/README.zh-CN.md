@@ -150,4 +150,19 @@ cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --re
 
 看板文案默认跟随系统／浏览器首选语言：中文（`zh-*`）显示简体中文，其他语言显示英文。Agent／用户内容与 HTML 展示保持原样；更改浏览器语言后刷新页面生效。
 
+看板示例（演示数据）：同页查看多个小队、任务进展和成员状态，通过右侧表单回复问题或向指挥官留言。
+
+![中文看板：任务进展、成员状态和用户答复面板](../.github/assets/dashboard/main.jpg)
+
+<details>
+<summary>查看英文版看板及任务详情</summary>
+
+英文示例的任务、问题和 HTML 内容使用预先准备的英文演示数据，不是自动翻译的 Agent 消息。
+
+![英文看板示例](../.github/assets/dashboard/main-en.png)
+
+![英文任务详情与常驻答复表单](../.github/assets/dashboard/detail-en.png)
+
+</details>
+
 指挥官通过 `task` 管理任务，`send(task_id=...)` 关联派发，`ask(target="user")` 创建问题，`artifact` 发布隔离的 HTML 补充说明。用户答案持久化后进入当前指挥官收件箱；读取不代表处理，使用 `ask(target="user", action="handle", id=..., version=..., result=...)` 明确记录结果。关闭页面不结束小队。数据隔离、重试、恢复、HTML 限制和升级见[看板使用说明](dashboard.md)。

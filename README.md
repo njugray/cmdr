@@ -123,6 +123,19 @@ Run `cmdr dashboard` (or the stable CLI path printed by setup) to open the built
 
 Dashboard UI copy follows the system/browser’s preferred language: Chinese (`zh-*`) uses Simplified Chinese; other languages use English. Agent/user content and HTML artifacts remain unchanged. Reload after changing the browser language.
 
+Example dashboard with demo data: multiple squads, task progress, member status, HTML explanations and user answers. Agent content in this example was written in English; it is not automatically translated.
+
+![English dashboard showing the task board and user decision panel](.github/assets/dashboard/main-en.png)
+
+<details>
+<summary>Task details with the answer form kept open</summary>
+
+![English task details, execution history and user answer form](.github/assets/dashboard/detail-en.png)
+
+</details>
+
+[View the Chinese dashboard example](.github/assets/dashboard/main.jpg).
+
 Commanders create tasks with `task(action="create", title=...)`, dispatch using `send(task_id=..., to=..., message=...)`, and ask the user with `ask(target="user", question=..., kind="single|multiple|text|confirm")`. Answers enter the stable commander inbox; explicitly use `ask(target="user", action="handle", id=..., version=..., result=...)` after processing. `artifact` publishes self-contained sandboxed HTML explanations. See [dashboard operations and limits](docs/dashboard.md).
 
 ## Installation diagnostics and member CLI

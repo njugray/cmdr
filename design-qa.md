@@ -55,3 +55,12 @@ final result: passed
 - 真实 Claude/Codex/ZCode 模型唤醒不在本次浏览器验证中；这里只复用现有机制，不把消息入队或监听健康等同于模型已经处理。
 
 完成项：布局还原、状态与交互、受限留言入口、操作文档、构建与测试、实装截图。
+
+
+## 英文文案与文档截图补充（2026-09-18）
+
+- 使用 ego-browser 截取实际构建后的看板，视口 1440 × 900，页面级语言设为 `en-US`；页面标题和控件显示英文。
+- 在独立临时 `CMDR_HOME` 中通过 Core 创建英文演示数据，由实际 daemon 提供 HTTP/SSE 服务；没有使用默认数据目录或修改页面 DOM 来伪造业务状态。
+- 截图覆盖[英文主看板](.github/assets/dashboard/main-en.png)和[英文任务详情](.github/assets/dashboard/detail-en.png)。选项与草稿在打开详情后保留，HTML 展示来自真实沙箱 artifact。
+- 演示会话未连接真实模型，成员的 Offline / Continue manually 状态按实际数据展示。任务、问题、选项及 HTML 的英文内容由演示数据提供，不是界面自动翻译。
+- 英文 README 展示英文截图；中文 README 展示原有中文截图，并提供英文示例。此次只更新文档与截图；检查图片、相对链接和 `git diff --check`，不重复运行已通过的代码检查。
