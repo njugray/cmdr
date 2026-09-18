@@ -8,6 +8,8 @@ it('stamps provisional identity without losing membership or messages', async ()
   const p = await f.session('zcode', null, { cwd: null, wait_hint: 300 });
   const joined = await f.core.handle(p, 'session.join', { role: 'commander', squad_name: 'Mixed' });
   const old = p.sid!;
+  // ZCode relies on agent-level hooks to seed cwd: its MCP registration does
+  // not carry one, so any hook event's cwd establishes the session record.
   await f.core.handle({ notify: () => {} }, 'hook.event', {
     agent: 'zcode',
     session_id: 'real',
@@ -89,6 +91,43 @@ it('rebinds Claude clear only when exactly one host process matches', async () =
   });
   expect(c.sid).toBe('claude:new');
   expect(f.store.session(c.sid!)?.role).toBe('commander');
+});
+it('never binds the pooled Kimi MCP connection from SessionStart', async () => {
+  f = fixture();
+  const provisional = await f.session('kimi', null, { cwd: '/workspace' }),
+    old = provisional.sid!;
+  const joined = await f.core.handle(provisional, 'session.join', {
+    role: 'executor',
+    squad_name: 'work',
+  });
+  await f.core.handle({ notify: () => {} }, 'hook.event', {
+    agent: 'kimi',
+    session_id: 'real',
+    event: 'SessionStart',
+    source: 'startup',
+    cwd: '/workspace',
+    ancestors: [process.pid],
+  });
+  expect(provisional.sid).toBe(old);
+  expect(f.store.session(old)?.native_id).toBeNull();
+  expect(f.store.session(old)?.role).toBe('executor');
+  expect(f.store.session(old)?.squad_id).toBe(joined.squad.id);
+  // The hook context registers independently as kimi:real.
+  expect(f.store.session('kimi:real')?.role).toBe('none');
+});
+it('ignores agent-level hook cwd on Kimi desktop', async () => {
+  f = fixture();
+  const ctx = await f.session('kimi', 'member', { cwd: '/workspace' });
+  await f.core.handle(ctx, 'session.join', { role: 'executor', squad_name: 'wk' });
+  for (const event of ['Stop', 'UserPromptSubmit', 'PreToolUse']) {
+    await f.core.handle({ notify: () => {} }, 'hook.event', {
+      agent: 'kimi',
+      session_id: 'member',
+      event,
+      cwd: '/',
+    });
+    expect(f.store.session('kimi:member')?.cwd).toBe('/workspace');
+  }
 });
 it('keeps presence online until the last MCP connection closes', async () => {
   f = fixture();

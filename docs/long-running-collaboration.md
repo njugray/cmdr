@@ -62,6 +62,7 @@ On startup or after a wake, use ordinary `read` and `read(recover=true)`. Recove
 | Codex | Daemon attaches through app-server proxy; falls back to `codex queue` when proxy is unavailable | Join with auto, check health, end the idle turn |
 | Claude Code | Native Monitor emits a notification for each watcher output line | Run `listener.arm.command` with Monitor; re-arm on expiry/exit |
 | ZCode desktop | Native background Bash re-invokes its session when the watcher exits | Run `listener.arm.command` with `run_in_background=true`; re-arm after each notification |
+| Kimi Code desktop | Native background Bash re-invokes its session when the watcher exits | Run `listener.arm.command` with `run_in_background=true`; re-arm after each notification |
 
 All paths share the same actionable policy: command, cancel, ask, answer, system, terminal/blocked reports, attention-marked info and direct info. working/ready reports and broadcast info without attention are quiet. Commands gated by reassignment remain blocked. Observation does not consume messages or accept tasks. Every wake must be followed by `read` and `read(recover=true)`, cancellation handling, and correlated working/terminal reports.
 
@@ -99,18 +100,19 @@ cmdr standby resume --session SID --resolve retry
 
 `retry` explicitly permits a new submission; it does not establish that the earlier one failed. Busy sessions coalesce backlog. Host acceptance remains separate from the command owner's working report.
 
-### Claude and ZCode: native host watchers
+### Claude, ZCode and Kimi Code: native host watchers
 
 Join/list returns `listener.arm` with an absolute installed command, the native host tool and re-arm instructions. The standard command is:
 
 ```sh
 cmdr standby watch --session claude:REAL_ID
 cmdr standby watch --session zcode:REAL_ID
+cmdr standby watch --session kimi:REAL_ID
 ```
 
 Claude uses its **Monitor tool**, not foreground Bash or shell `&`. Each stdout line becomes a native notification, queued into an active turn or opening an idle turn. The reporter's Monitor has a 30-minute lifetime; re-arm when the host reports expiry/exit. If Monitor is absent but the host supports background Bash completion notifications, use `--once` with `run_in_background=true`. If neither mechanism exists, explicitly select manual.
 
-ZCode uses **Bash with run_in_background=true**. Its native task survives the current turn and automatically re-invokes the session on completed/failed/killed. The built-in watcher remains silent during idle periods and exits after printing actionable metadata. It never consumes inbox messages, so a lost output notification still leaves the work available for recovery. On notification: inspect task output, read/recover, handle work, and re-arm. An immediate backlog produces an immediate notification; drain/reconcile it before re-arming.
+ZCode and Kimi Code use **Bash with run_in_background=true**. Their native task survives the current turn and automatically re-invokes the session on completed/failed/killed. The built-in watcher remains silent during idle periods and exits after printing actionable metadata (on Kimi Code it also exits after one wake because its hook reminders cannot reach the model, so the agent must re-arm from the completion notification). It never consumes inbox messages, so a lost output notification still leaves the work available for recovery. On notification: inspect task output, read/recover, handle work, and re-arm. An immediate backlog produces an immediate notification; drain/reconcile it before re-arming.
 
 The command subscribes before inspecting current work, covering startup races, unread messages and read-but-unaccepted commands. At attach, accepted commands without pending cancellation are treated as already known: a blocked executor can re-arm and wait for an answer without repeatedly waking on its own unfinished task. Ownership and `read(recover=true)` remain unchanged; reconcile accepted work on startup or after context loss before arming. Unread answers, new commands and pending cancellation still notify, including cancellation requested after attach.
 

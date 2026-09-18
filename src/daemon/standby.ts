@@ -39,7 +39,7 @@ export class StandbyManager {
       fail('INVALID_ARGUMENT', 'executable must be an absolute path');
     if (p.socket && (typeof p.socket !== 'string' || !isAbsolute(p.socket)))
       fail('INVALID_ARGUMENT', 'socket must be an absolute path');
-    if (p.adapter && !['codex', 'claude', 'zcode', 'manual'].includes(p.adapter))
+    if (p.adapter && !['codex', 'claude', 'zcode', 'kimi', 'manual'].includes(p.adapter))
       fail('INVALID_ARGUMENT');
     if (p.transport && !['auto', 'proxy', 'queue'].includes(p.transport)) fail('INVALID_ARGUMENT');
     if (p.resolve && !['retry', 'accepted'].includes(p.resolve)) fail('INVALID_ARGUMENT');
@@ -73,7 +73,7 @@ export class StandbyManager {
       s.wake_mode =
         p.adapter ||
         (p.action === 'start'
-          ? ['codex', 'claude', 'zcode'].includes(session.agent)
+          ? ['codex', 'claude', 'zcode', 'kimi'].includes(session.agent)
             ? (session.agent as Standby['wake_mode'])
             : 'manual'
           : s.wake_mode);
@@ -121,7 +121,10 @@ export class StandbyManager {
     const s = this.core.store.standby(sid);
     const session = this.core.store.session(sid);
     if (!s?.enabled || !session?.squad_id || !hostStandby(s.wake_mode))
-      fail('WATCHER_DISABLED', 'Join with standby=auto on Claude/ZCode before arming a watcher');
+      fail(
+        'WATCHER_DISABLED',
+        'Join with standby=auto on Claude/ZCode/Kimi before arming a watcher',
+      );
     if (action === 'detach') {
       if (s.lease?.token === token) {
         s.lease = undefined;

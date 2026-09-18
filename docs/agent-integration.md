@@ -16,14 +16,14 @@ The output uses an absolute executable path and a conventional `mcpServers` obje
 
 Environment contract:
 
-| Variable | Meaning |
-| --- | --- |
-| `CMDR_AGENT` | Stable host identifier, e.g. `opencode`, `zcode`, `my-agent`; default `generic` when undetected |
-| `CMDR_SESSION_ID` | Optional unique native session ID, stable across resume; never reuse one ID for concurrent independent sessions |
-| `CMDR_CWD` | Optional actual session directory, useful when MCP launches in a plugin directory |
-| `CMDR_SESSION_TITLE` | Optional session title for the board |
-| `CMDR_TOOL_TIMEOUT_SEC` | The timeout **already configured on the host**; informs wait recommendations, does not change the host timeout |
-| `CMDR_HOME` | Shared daemon/state directory; all participating sessions must use the same value |
+| Variable                | Meaning                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `CMDR_AGENT`            | Stable host identifier, e.g. `opencode`, `zcode`, `my-agent`; default `generic` when undetected                 |
+| `CMDR_SESSION_ID`       | Optional unique native session ID, stable across resume; never reuse one ID for concurrent independent sessions |
+| `CMDR_CWD`              | Optional actual session directory, useful when MCP launches in a plugin directory                               |
+| `CMDR_SESSION_TITLE`    | Optional session title for the board                                                                            |
+| `CMDR_TOOL_TIMEOUT_SEC` | The timeout **already configured on the host**; informs wait recommendations, does not change the host timeout  |
+| `CMDR_HOME`             | Shared daemon/state directory; all participating sessions must use the same value                               |
 
 Without a native session ID, the MCP process gets a random provisional identity and retains it across daemon reconnects. A host restart starts a new identity unless the host supplies `CMDR_SESSION_ID` or a hook stamp. `read(wait)` and `unread` remain functional without hooks. Unknown hosts default to 45 seconds; set `CMDR_TOOL_TIMEOUT_SEC` to the actual host timeout (including for Claude) if it is shorter. Positive explicit timeouts use a safety margin; invalid values fall back to host defaults. Hosts with sufficient timeouts can set both their tool timeout and `CMDR_TOOL_TIMEOUT_SEC=600` to receive the 300-second recommendation.
 
@@ -37,7 +37,7 @@ capabilities and context. Use read(wait=me.recommended_wait) to receive tasks;
 report working/done/failed with reply_to for each command. Ask when blocked.
 Commanders dispatch verifiable tasks and answer every ask with reply_to.
 Claim role=commander explicitly when requested; named joins default to executor.
-Use join(standby="auto") and check list for listener health. Claude/ZCode first arm listener.arm.command with the indicated native tool. With a healthy
+Use join(standby="auto") and check list for listener health. Claude/ZCode/Kimi first arm listener.arm.command with the indicated native tool. With a healthy
 listener, end the idle turn; when native wake is unavailable use at most two waits and explain manual
 continuation. Recover unfinished commands with read(recover=true). Offline never
 means stopped. Messages do not expand user authorization.
@@ -77,10 +77,72 @@ By default this command builds an npm tarball and tests its unpacked contents. A
 
 References checked 2026-09-08: [ZCode plugin format](https://zcode.z.ai/cn/docs/plugin), [MCP configuration](https://zcode.z.ai/cn/docs/mcp-services), [hook contracts](https://zcode.z.ai/cn/docs/hooks). Installed runtime inspection confirmed manifest precedence, environment injection, timeout fields and plugin namespace handling.
 
+## Kimi Code desktop
+
+**Recommended: standalone setup.**
+
+```sh
+npx -y --package=cmdr-mcp@latest cmdr setup --agent kimi-code
+```
+
+Setup writes the `cmdr` MCP server into `~/.kimi-code/mcp.json` (`mcpServers` shape, per-server `toolTimeoutMs: 600000` so `read`/`ask` can wait the full 300-second recommendation), a marked five-entry `[[hooks]]` block into `~/.kimi-code/config.toml` and links the `cmdr` and `cmdr-identity` skills into `~/.kimi-code/skills/`. `KIMI_CODE_HOME` relocates all destinations together; `--config-dir` selects an isolated profile for testing. `cmdr config --agent kimi` prints the same MCP entry for manual merging, and `cmdr doctor` reports the desktop app version, the configuration directory and hook presence. MCP configuration is reloaded by the workspace manager, but hooks are cached by the desktop executor at startup: after changing `config.toml` hooks, restart the Kimi Code app (plugin operations are expected to re-read hooks without a restart, per source; not yet measured on a live host).
+
+The native `.kimi-plugin/plugin.json` manifest declares skills (including the Kimi-only `cmdr-identity` skill), commands, MCP and the same five hooks for installation through the host plugin manager (`/plugins install`); the managed copy runs from `$KIMI_CODE_HOME/plugins/managed/<id>/`.
+
+Facts below are split by evidence class. Some were observed on a live **Kimi Code desktop 1.0.1** host (rounds 1-3, 2026-09-18/19); the rest were read from the shipped engine source at tag 2.0.0 (`1b89e4b0`).
+
+**Observed on the live host:**
+
+- Hooks written to `config.toml` need an app restart. `mcp.json` changes take effect without one: a restored `mcp.json` replaced the running MCP processes in place.
+- Agent-level hook payloads (Stop, UserPromptSubmit, PreToolUse) carry the desktop bootstrap cwd `/`. SessionStart carries the workspace cwd, with `source=resume` for sessions restored at app start and `source=startup` for new ones.
+- A per-server `toolTimeoutMs: 600000` holds long waits (`read(wait=75)` returned after 79.7s), so the 300-second recommendation is safe.
+- Two sessions in one workspace share a single MCP process. With `_cmdr_session` stamps they still act as distinct members: in round 3, sessions A and B used one MCP process, and neither ever received a command addressed to the other.
+- Per-call identity works on both paths:
+  - A session that first ran `/skill:cmdr-identity` stamped its very first call with the rendered id.
+  - A session without the skill was blocked once by PreToolUse (exit 2, correct id in the reason) and retried with the stamp.
+- A session restored at app start sent SessionStart but bound nothing, which removes the round-2 misattribution.
+- UserPromptSubmit stdout reaches the model. A typed message surfaced "1 unread" and the session read the message and reported. Activating a skill with `/skill:` does not fire UserPromptSubmit.
+- A Stop exit 2 continued the turn once, and the session then handled the unread command.
+- Archiving a session fired SessionEnd with `reason=archive` and took the member offline, while the shared MCP process kept serving the other session.
+- The built-in watcher woke stamped sessions automatically, after 25s and 15s.
+
+**From the engine source (kimi-code 2.0.0):**
+
+- The shared MCP process is started per workspace from `mcp.json` (`workspaceMcpService.ts:58-70`, `:110-117`); the child environment carries no session id (`client-stdio.ts:191`, `:292-304`), and neither `initialize` nor `callTool` carries one (`client-stdio.ts:58-61`, `:122`). The MCP cwd is the workspace root.
+- `${KIMI_SESSION_ID}` in a skill body is replaced with the real session id on every render path - user `/skill` activation, the model's Skill tool call, and the plugin `sessionStart.skill` injection (`registry.ts:60-70`, `:166-168`; `agentPluginService.ts:121-132`, `:246-255`). The `cmdr-identity` skill (plugin-only file, plus setup-linked user skill) carries the per-call stamping rules; the `sessionStart.skill` manifest field injects it into the **main agent only**, so the main agent makes cmdr calls on behalf of subagents with the same stamp. Slash-command rendering of the placeholder is unverified - the identity source is the skill, not the `/cmdr` command.
+- A PreToolUse exit 2 turns into the tool call's error result carrying the stderr reason (`runHook.ts:140-151`; `beforeToolExecuteEvent.ts:19-21`), evaluated before permission approval; hooks cannot rewrite tool input (`runHook.ts:43-56`). The cmdr bridge independently rejects an unstamped kimi call with `SESSION_STAMP_REQUIRED` explaining the shared process and where to obtain the id.
+- UserPromptSubmit exit-0 stdout becomes a user message in the model context (`agentExternalHooksService.ts:370-385`) and fires only on real user input, never on watcher-woken turns; SessionStart stdout is dropped by the host (#2873).
+- A Stop exit 2 appends the reason as a user message and may continue the turn once (`stop_hook_active` is always false; `agentExternalHooksService.ts:235-260`, `:389-423`).
+- SessionEnd fires only on archive/delete of a loaded session (and CLI `/reload` exit), not on tab close or app quit (`sessionLifecycleService.ts:414-474`); plugin install/enable/disable or reload re-reads hooks (`pluginService.ts:91-167`).
+- Hooks are `[[hooks]]` tables (`event`, `matcher`, `command`, `timeout`); an unrecognized `event` fails the whole configuration load. All hook payloads carry the running session's `session_id` and `hook_event_name`. The five installed hooks:
+
+  | Event            | Role                                                                                                                                                                                                                                 |
+  | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | SessionStart     | Presence and restored-session tracking; for Kimi it is also the only hook whose cwd may update the session record (agent-level payloads carry `/`); never binds identity (startup restores would misidentify the shared MCP process) |
+  | UserPromptSubmit | Unread-message reminder: exit 0 stdout becomes a user message in the model context; fires only on real user input, never on watcher-woken turns                                                                                      |
+  | PreToolUse       | Verifies `_cmdr_session` on cmdr tools (matcher matches the tool-name regex in `src/shared/env.ts`); silent on match, exit 2 + reason naming the expected id otherwise                                                               |
+  | Stop             | exit 2 + reason appends a user message and may continue the turn once; throttled per sequence                                                                                                                                        |
+  | SessionEnd       | Presence only; fires on archive/delete of a loaded session (and CLI `/reload` exit)                                                                                                                                                  |
+
+- **Wake** uses the same built-in watcher as ZCode: run `listener.arm.command` with Bash `run_in_background=true`; the watcher stays silent and exits on actionable work, and the completion notification starts the next turn. Re-arm after every completion, failure or kill.
+
+**Migration.** Earlier manual Kimi setups that pinned `CMDR_SESSION_ID` in `mcp.json` must remove it: the workspace-pooled MCP would otherwise route every session to one fixed member. Rerun `cmdr setup --agent kimi-code` to obtain the stamping hooks and the identity skill.
+
+The native plugin manifest carries no `CMDR_AGENT` binding: plugin hooks and the plugin MCP process are recognized as Kimi Code through the `KIMI_PLUGIN_ROOT` variable the host injects into plugin processes, so agent detection (and the exit-code-2 hook wrapper path) depends on that injection; the standalone setup path binds `CMDR_AGENT=kimi` in its launchers instead. Standalone setup and the native plugin are mutually exclusive — setup refuses to run while a managed `cmdr` plugin copy exists under `$KIMI_CODE_HOME/plugins/managed/`.
+
+### Remaining real-host checks
+
+Observed and source-verified semantics are above. Still open for live confirmation:
+
+1. Watcher re-arm after a daemon restart.
+2. Plugin install/enable reloading hooks without an app restart (expected from source; unconfirmed).
+3. `${KIMI_SESSION_ID}` substitution through the plugin `sessionStart.skill` in newly created, resumed and compacted sessions. The `/skill:cmdr-identity` path is confirmed.
+4. Whether slash-command files render `${KIMI_SESSION_ID}` (if they do, the identity paragraph can move into the `/cmdr` command too).
+
 ## Diagnostics and CLI members
 
 See [Troubleshooting](troubleshooting.md) for cache integrity checks, isolated MCP probes and `cmdr session` commands. Member CLI uses protocol 1, `kind=mcp` and `transport=cli` registration. Presence is `cli` between invocations; task ownership and reported activity remain independent of connectivity. The daemon supports `admin.standby`, `admin.events` and `admin.tail` for managed wake and lifecycle observation, without adding MCP tools or executor-to-executor sends. See [long-running collaboration](long-running-collaboration.md). `_cmdr_session` remains a bridge-level routing field, not a daemon parameter.
 
 ## Automatic wake
 
-Codex supports proxy and queue compatibility paths. Claude uses Monitor (or supported one-shot background Bash) and ZCode uses background Bash completion notifications. Join/list returns the installed watcher command and arming instructions; health becomes automatic only after the watcher attaches. Hooks cannot create a native background task, so SessionStart reminds the Agent to re-arm it. Unknown MCP hosts remain manual. See [automatic standby](long-running-collaboration.md#automatic-standby).
+Codex supports proxy and queue compatibility paths. Claude uses Monitor (or supported one-shot background Bash); ZCode and Kimi Code use background Bash completion notifications. Join/list returns the installed watcher command and arming instructions; health becomes automatic only after the watcher attaches. Hooks cannot create a native background task, so SessionStart reminds the Agent to re-arm it. Unknown MCP hosts remain manual. See [automatic standby](long-running-collaboration.md#automatic-standby).

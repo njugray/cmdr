@@ -1,6 +1,6 @@
 # Setup and recovery
 
-Requires macOS/Linux, Node.js >=22.5 and cmdr-mcp >=0.4.0. When installation or repair is requested, choose the actual host (`claude-code`, `codex` or `zcode`):
+Requires macOS/Linux, Node.js >=22.5 and cmdr-mcp >=0.4.0. When installation or repair is requested, choose the actual host (`claude-code`, `codex`, `zcode` or `kimi-code`):
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code

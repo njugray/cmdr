@@ -47,7 +47,7 @@ export async function watch(sid: string, once = false) {
           'Call read and read(recover=true); handle cancellation first and report with reply_to.',
       }) + '\n',
     );
-    if (once || result.wake_mode === 'zcode') stop();
+    if (once || result.wake_mode === 'zcode' || result.wake_mode === 'kimi') stop();
   };
   const check = async () => {
     if (stopped) return;
