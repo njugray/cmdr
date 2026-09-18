@@ -557,6 +557,20 @@ export class Core {
       }
     }
     this.store.migrateMembership(old.sid, sid);
+    // The listener follows the member and is dropped without one. Its lease and wake
+    // request belong to the old session, so the host must re-arm for the new one.
+    const standby = this.store.standby(old.sid);
+    if (standby) {
+      this.store.deleteStandby(old.sid);
+      if (old.role !== 'none')
+        this.store.saveStandby({
+          ...standby,
+          sid,
+          lease: undefined,
+          request: undefined,
+          health: standby.enabled && standby.wake_mode !== 'manual' ? 'starting' : standby.health,
+        });
+    }
     this.store.deleteSession(old.sid);
     for (const c of this.contexts)
       if (c.sid === old.sid) {
