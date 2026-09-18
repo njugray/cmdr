@@ -2232,10 +2232,10 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
+    function getFullPath(resolver, id2 = "", normalize) {
       if (normalize !== false)
-        id = normalizeId(id);
-      const p = resolver.parse(id);
+        id2 = normalizeId(id2);
+      const p = resolver.parse(id2);
       return _getFullPath(resolver, p);
     }
     exports.getFullPath = getFullPath;
@@ -2245,13 +2245,13 @@ var require_resolve = __commonJS({
     }
     exports._getFullPath = _getFullPath;
     var TRAILING_SLASH_HASH = /#\/?$/;
-    function normalizeId(id) {
-      return id ? id.replace(TRAILING_SLASH_HASH, "") : "";
+    function normalizeId(id2) {
+      return id2 ? id2.replace(TRAILING_SLASH_HASH, "") : "";
     }
     exports.normalizeId = normalizeId;
-    function resolveUrl(resolver, baseId, id) {
-      id = normalizeId(id);
-      return resolver.resolve(baseId, id);
+    function resolveUrl(resolver, baseId, id2) {
+      id2 = normalizeId(id2);
+      return resolver.resolve(baseId, id2);
     }
     exports.resolveUrl = resolveUrl;
     var ANCHOR = /^[a-z_][-a-z0-9._]*$/i;
@@ -3021,8 +3021,8 @@ var require_compile = __commonJS({
       if (Object.keys(root.schema).length > 0 && refPath === baseId) {
         return getJsonPointer.call(this, p, root);
       }
-      const id = (0, resolve_1.normalizeId)(refPath);
-      const schOrRef = this.refs[id] || this.schemas[id];
+      const id2 = (0, resolve_1.normalizeId)(refPath);
+      const schOrRef = this.refs[id2] || this.schemas[id2];
       if (typeof schOrRef == "string") {
         const sch = resolveSchema.call(this, root, schOrRef);
         if (typeof (sch === null || sch === void 0 ? void 0 : sch.schema) !== "object")
@@ -3033,7 +3033,7 @@ var require_compile = __commonJS({
         return;
       if (!schOrRef.validate)
         compileSchema.call(this, schOrRef);
-      if (id === (0, resolve_1.normalizeId)(ref)) {
+      if (id2 === (0, resolve_1.normalizeId)(ref)) {
         const { schema } = schOrRef;
         const { schemaId } = this.opts;
         const schId = schema[schemaId];
@@ -4459,15 +4459,15 @@ var require_core = __commonJS({
             this.addSchema(sch, void 0, _meta, _validateSchema);
           return this;
         }
-        let id;
+        let id2;
         if (typeof schema === "object") {
           const { schemaId } = this.opts;
-          id = schema[schemaId];
-          if (id !== void 0 && typeof id != "string") {
+          id2 = schema[schemaId];
+          if (id2 !== void 0 && typeof id2 != "string") {
             throw new Error(`schema ${schemaId} must be string`);
           }
         }
-        key = (0, resolve_1.normalizeId)(key || id);
+        key = (0, resolve_1.normalizeId)(key || id2);
         this._checkUnique(key);
         this.schemas[key] = this._addSchema(schema, _meta, key, _validateSchema, true);
         return this;
@@ -4546,11 +4546,11 @@ var require_core = __commonJS({
           case "object": {
             const cacheKey = schemaKeyRef;
             this._cache.delete(cacheKey);
-            let id = schemaKeyRef[this.opts.schemaId];
-            if (id) {
-              id = (0, resolve_1.normalizeId)(id);
-              delete this.schemas[id];
-              delete this.refs[id];
+            let id2 = schemaKeyRef[this.opts.schemaId];
+            if (id2) {
+              id2 = (0, resolve_1.normalizeId)(id2);
+              delete this.schemas[id2];
+              delete this.refs[id2];
             }
             return this;
           }
@@ -4621,7 +4621,7 @@ var require_core = __commonJS({
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
         if (!errors || errors.length === 0)
           return "No errors";
-        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
+        return errors.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text3, msg) => text3 + separator + msg);
       }
       $dataMetaSchema(metaSchema, keywordsJsonPointers) {
         const rules = this.RULES.all;
@@ -4657,10 +4657,10 @@ var require_core = __commonJS({
         }
       }
       _addSchema(schema, meta, baseId, validateSchema = this.opts.validateSchema, addSchema = this.opts.addUsedSchema) {
-        let id;
+        let id2;
         const { schemaId } = this.opts;
         if (typeof schema == "object") {
-          id = schema[schemaId];
+          id2 = schema[schemaId];
         } else {
           if (this.opts.jtd)
             throw new Error("schema must be object");
@@ -4670,7 +4670,7 @@ var require_core = __commonJS({
         let sch = this._cache.get(schema);
         if (sch !== void 0)
           return sch;
-        baseId = (0, resolve_1.normalizeId)(id || baseId);
+        baseId = (0, resolve_1.normalizeId)(id2 || baseId);
         const localRefs = resolve_1.getSchemaRefs.call(this, schema, baseId);
         sch = new compile_1.SchemaEnv({ schema, schemaId, meta, baseId, localRefs });
         this._cache.set(sch.schema, sch);
@@ -4683,9 +4683,9 @@ var require_core = __commonJS({
           this.validateSchema(schema, true);
         return sch;
       }
-      _checkUnique(id) {
-        if (this.schemas[id] || this.refs[id]) {
-          throw new Error(`schema with key or id "${id}" already exists`);
+      _checkUnique(id2) {
+        if (this.schemas[id2] || this.refs[id2]) {
+          throw new Error(`schema with key or id "${id2}" already exists`);
         }
       }
       _compileSchemaEnv(sch) {
@@ -7217,7 +7217,9 @@ var methods = {
   report: "msg.report",
   ask: "msg.ask",
   read: "msg.read",
-  leave: "session.leave"
+  leave: "session.leave",
+  task: "dashboard.task",
+  artifact: "dashboard.artifact"
 };
 
 // node_modules/zod/v3/external.js
@@ -13031,38 +13033,38 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     doc.write(`const newResult = {}`);
     for (const key of normalized.keys) {
       if (normalized.optionalKeys.has(key)) {
-        const id = ids[key];
-        doc.write(`const ${id} = ${parseStr(key)};`);
+        const id2 = ids[key];
+        doc.write(`const ${id2} = ${parseStr(key)};`);
         const k = esc(key);
         doc.write(`
-        if (${id}.issues.length) {
+        if (${id2}.issues.length) {
           if (input[${k}] === undefined) {
             if (${k} in input) {
               newResult[${k}] = undefined;
             }
           } else {
             payload.issues = payload.issues.concat(
-              ${id}.issues.map((iss) => ({
+              ${id2}.issues.map((iss) => ({
                 ...iss,
                 path: iss.path ? [${k}, ...iss.path] : [${k}],
               }))
             );
           }
-        } else if (${id}.value === undefined) {
+        } else if (${id2}.value === undefined) {
           if (${k} in input) newResult[${k}] = undefined;
         } else {
-          newResult[${k}] = ${id}.value;
+          newResult[${k}] = ${id2}.value;
         }
         `);
       } else {
-        const id = ids[key];
-        doc.write(`const ${id} = ${parseStr(key)};`);
+        const id2 = ids[key];
+        doc.write(`const ${id2} = ${parseStr(key)};`);
         doc.write(`
-          if (${id}.issues.length) payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
+          if (${id2}.issues.length) payload.issues = payload.issues.concat(${id2}.issues.map(iss => ({
             ...iss,
             path: iss.path ? [${esc(key)}, ...iss.path] : [${esc(key)}]
           })));`);
-        doc.write(`newResult[${esc(key)}] = ${id}.value`);
+        doc.write(`newResult[${esc(key)}] = ${id2}.value`);
       }
     }
     doc.write(`payload.value = newResult;`);
@@ -14795,13 +14797,13 @@ var JSONSchemaGenerator = class {
       const defsSegment = this.target === "draft-2020-12" ? "$defs" : "definitions";
       if (params.external) {
         const externalId = params.external.registry.get(entry[0])?.id;
-        const uriGenerator = params.external.uri ?? ((id2) => id2);
+        const uriGenerator = params.external.uri ?? ((id3) => id3);
         if (externalId) {
           return { ref: uriGenerator(externalId) };
         }
-        const id = entry[1].defId ?? entry[1].schema.id ?? `schema${this.counter++}`;
-        entry[1].defId = id;
-        return { defId: id, ref: `${uriGenerator("__shared")}#/${defsSegment}/${id}` };
+        const id2 = entry[1].defId ?? entry[1].schema.id ?? `schema${this.counter++}`;
+        entry[1].defId = id2;
+        return { defId: id2, ref: `${uriGenerator("__shared")}#/${defsSegment}/${id2}` };
       }
       if (entry[1] === root) {
         return { ref: "#" };
@@ -14849,8 +14851,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
           continue;
         }
       }
-      const id = this.metadataRegistry.get(entry[0])?.id;
-      if (id) {
+      const id2 = this.metadataRegistry.get(entry[0])?.id;
+      if (id2) {
         extractToDef(entry);
         continue;
       }
@@ -14904,10 +14906,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       console.warn(`Invalid target: ${this.target}`);
     }
     if (params.external?.uri) {
-      const id = params.external.registry.get(schema)?.id;
-      if (!id)
+      const id2 = params.external.registry.get(schema)?.id;
+      if (!id2)
         throw new Error("Schema is missing an `id` property");
-      result.$id = params.external.uri(id);
+      result.$id = params.external.uri(id2);
     }
     Object.assign(result, root.def);
     const defs = params.external?.defs ?? {};
@@ -19940,7 +19942,7 @@ var ExperimentalServerTasks = class {
       if (hasPreviousToolUse) {
         const toolUseIds = new Set(previousContent.filter((c) => c.type === "tool_use").map((c) => c.id));
         const toolResultIds = new Set(lastContent.filter((c) => c.type === "tool_result").map((c) => c.toolUseId));
-        if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every((id) => toolResultIds.has(id))) {
+        if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every((id2) => toolResultIds.has(id2))) {
           throw new Error("ids of tool_result blocks and tool_use blocks from previous message do not match");
         }
       }
@@ -20365,7 +20367,7 @@ var Server = class extends Protocol {
       if (hasPreviousToolUse) {
         const toolUseIds = new Set(previousContent.filter((c) => c.type === "tool_use").map((c) => c.id));
         const toolResultIds = new Set(lastContent.filter((c) => c.type === "tool_result").map((c) => c.toolUseId));
-        if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every((id) => toolResultIds.has(id))) {
+        if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every((id2) => toolResultIds.has(id2))) {
           throw new Error("ids of tool_result blocks and tool_use blocks from previous message do not match");
         }
       }
@@ -21457,8 +21459,70 @@ var StdioServerTransport = class {
   }
 };
 
+// src/shared/dashboard.ts
+var DASHBOARD_LIMITS = {
+  recordsPerKind: 200,
+  runsPerTask: 100,
+  htmlBytes: 256 * 1024,
+  htmlBytesPerSquad: 8 * 1024 * 1024
+};
+
+// src/shared/dashboard-schemas.ts
+var id = external_exports.string().min(1).max(128);
+var text = external_exports.string().max(8e3);
+var artifacts = external_exports.array(id).max(8);
+var taskFields = {
+  action: external_exports.enum(["create", "update", "get", "list", "archive", "restore"]).default("list"),
+  id: id.optional(),
+  title: external_exports.string().trim().min(1).max(200).optional(),
+  description: text.optional(),
+  acceptance: text.optional(),
+  position: external_exports.number().finite().optional(),
+  artifact_ids: artifacts.optional(),
+  archived: external_exports.boolean().optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var questionFields = {
+  target: external_exports.enum(["commander", "user"]).default("commander"),
+  action: external_exports.enum(["create", "update", "get", "list", "withdraw", "handle"]).default("create"),
+  id: id.optional(),
+  task_id: id.optional(),
+  version: external_exports.number().int().positive().optional(),
+  description: text.optional(),
+  kind: external_exports.enum(["single", "multiple", "text", "confirm"]).optional(),
+  options: external_exports.array(external_exports.object({ id, label: external_exports.string().trim().min(1).max(300) }).strict()).max(20).optional(),
+  artifact_ids: artifacts.optional(),
+  result: text.optional(),
+  status: external_exports.enum(["pending", "answered", "handled", "withdrawn"]).optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var artifactFields = {
+  action: external_exports.enum(["publish", "get", "list"]).default("publish"),
+  id: id.optional(),
+  version: external_exports.number().int().positive().optional(),
+  title: external_exports.string().trim().min(1).max(200).optional(),
+  html: external_exports.string().min(1).refine((s) => Buffer.byteLength(s) <= DASHBOARD_LIMITS.htmlBytes, "MESSAGE_TOO_LARGE").optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var answerSchema = external_exports.object({
+  question_id: id,
+  version: external_exports.number().int().positive(),
+  submission_id: external_exports.string().uuid(),
+  selected: external_exports.array(id).max(20).default([]),
+  text: text.default(""),
+  confirmed: external_exports.boolean().optional()
+}).strict();
+var userMessageSchema = external_exports.object({
+  squad_id: id,
+  submission_id: external_exports.string().uuid(),
+  text: external_exports.string().trim().min(1).max(8e3)
+}).strict();
+
 // src/shared/schemas.ts
-var text = external_exports.string().min(1).refine((v) => Buffer.byteLength(v) <= LIMITS.maxBody, "MESSAGE_TOO_LARGE");
+var text2 = external_exports.string().min(1).refine((v) => Buffer.byteLength(v) <= LIMITS.maxBody, "MESSAGE_TOO_LARGE");
 var data = external_exports.record(external_exports.unknown()).refine((v) => Buffer.byteLength(JSON.stringify(v)) <= LIMITS.maxData, "MESSAGE_TOO_LARGE").optional();
 var wait = external_exports.number().min(0).max(300).default(0);
 var identity = { _cmdr_session: external_exports.string().min(1).max(256).optional() };
@@ -21468,7 +21532,7 @@ var schemas = {
     role: external_exports.enum(["commander", "executor"]).optional(),
     squad: external_exports.string().optional(),
     name: external_exports.string().trim().min(1).max(64).optional(),
-    note: text.optional(),
+    note: text2.optional(),
     squad_name: external_exports.string().trim().min(1).max(64).optional(),
     takeover: external_exports.boolean().default(false),
     standby: external_exports.enum(["auto", "manual"]).optional(),
@@ -21483,17 +21547,27 @@ var schemas = {
   report: external_exports.object({
     ...identity,
     status: external_exports.enum(["ready", "working", "blocked", "done", "failed", "cancelled"]),
-    message: text,
+    message: text2,
     reply_to: external_exports.string().optional(),
     data
   }).strict(),
-  ask: external_exports.object({ ...identity, question: text, wait, reply_to: external_exports.string().optional(), data }).strict(),
+  ask: external_exports.object({
+    ...identity,
+    ...questionFields,
+    question: text2.optional(),
+    wait,
+    reply_to: external_exports.string().optional(),
+    data
+  }).strict(),
+  task: external_exports.object({ ...identity, ...taskFields }).strict(),
+  artifact: external_exports.object({ ...identity, ...artifactFields }).strict(),
   send: external_exports.object({
     ...identity,
     to: external_exports.union([external_exports.string().min(1), external_exports.array(external_exports.string().min(1)).min(1).max(1e3)]),
-    message: text,
+    message: text2,
     type: external_exports.enum(["command", "cancel", "answer", "info"]).default("command"),
     task_key: external_exports.string().min(1).max(128).optional(),
+    task_id: external_exports.string().min(1).max(128).optional(),
     reassign: external_exports.string().optional(),
     attention: external_exports.boolean().optional(),
     priority: external_exports.enum(["high", "normal", "low"]).optional(),
@@ -21511,11 +21585,11 @@ var schemas = {
     recover: external_exports.boolean().default(false),
     full: external_exports.boolean().default(false)
   }).strict(),
-  leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text.optional() }).strict()
+  leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text2.optional() }).strict()
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.4.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.5.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -21736,26 +21810,26 @@ var Rpc = class extends EventEmitter {
     if (this.socket.destroyed) return Promise.reject(new CmdrError("DAEMON_UNAVAILABLE"));
     if (signal?.aborted) return Promise.reject(new CmdrError("REQUEST_CANCELLED"));
     return new Promise((resolve2, reject) => {
-      const id = this.next++;
+      const id2 = this.next++;
       const cancel = (code) => {
-        const p = this.pending.get(id);
+        const p = this.pending.get(id2);
         if (!p) return;
-        this.pending.delete(id);
+        this.pending.delete(id2);
         clearTimeout(p.timer);
         p.cleanup();
-        this.notify("rpc.cancel", { id });
+        this.notify("rpc.cancel", { id: id2 });
         reject(new CmdrError(code));
       };
       const abort = () => cancel("REQUEST_CANCELLED");
       const timer = setTimeout(() => cancel("DAEMON_UNAVAILABLE"), timeout);
-      this.pending.set(id, {
+      this.pending.set(id2, {
         resolve: resolve2,
         reject,
         timer,
         cleanup: () => signal?.removeEventListener("abort", abort)
       });
       signal?.addEventListener("abort", abort, { once: true });
-      this.send({ jsonrpc: "2.0", id, method, params });
+      this.send({ jsonrpc: "2.0", id: id2, method, params });
     });
   }
   notify(method, params) {
@@ -22049,9 +22123,11 @@ var server = new McpServer({ name: "cmdr", version: VERSION });
 var descriptions = {
   join: "Create/join a squad. For /cmdr <name>, pass squad_name for atomic find-or-create; role defaults to executor. Explicitly claim role=commander, use takeover=true for handover or rebind=member_id for a new endpoint. Otherwise specify role and optional squad ID/name. Use standby=auto; Claude/ZCode must run listener.arm.command with the indicated native host tool, and re-arm on termination. Codex is daemon driven. Inspect listener health before ending the turn. Executors report ready after joining. Reply with user_reply and follow listener health; bounded read(wait=me.recommended_wait) is the manual fallback.",
   list: "Show task ownership, unacked_for, execution activity, connection presence and listener health. Offline never authorizes reassignment. Use full=true for expanded session metadata; listings never include command bodies. Read your own messages with read(id=...). scope=all lists squads and sessions.",
-  send: "Commander: dispatch clear tasks with acceptance criteria, or answer an ask using type=answer and reply_to. Use task_key to prevent duplicate tickets and reassign=<command id> for a gated handover preserving the original task_key. type=cancel with reply_to requests a safe stop. to accepts all, member_id, sid, unique sid prefix or member name.",
+  send: "Commander: dispatch clear tasks with acceptance criteria, optionally linked to task_id from the dashboard task tool, or answer an executor ask using type=answer and reply_to. Use task_key to prevent duplicate tickets and reassign=<command id> for a gated handover preserving the original task/task_key. type=cancel with reply_to requests a safe stop. to accepts all, member_id, sid, unique sid prefix or member name.",
   report: "Executor: report ready (cwd/capabilities), working, blocked, done, failed or cancelled; include reply_to for the command.",
-  ask: "Executor: ask the commander for guidance. Optional wait waits for the matching answer; use me.recommended_wait as the upper bound.",
+  ask: "Executor: ask the commander (default target=commander). Commander: target=user creates a durable dashboard question (kind=single|multiple|text|confirm); use action=list|get|update|withdraw|handle, id and current version. handle requires result. User replies arrive in read; query status=answered to recover unhandled decisions. User questions do not use wait.",
+  task: "Maintain dashboard tasks. Commander uses action=create|update|archive|restore; title is required for create. Members can list/get within their squad. Dispatch with send(task_id=...). Execution states follow commands/reports; unfinished work cannot be archived. list is paginated; get includes durable execution history.",
+  artifact: "Commander publishes self-contained HTML as an isolated dashboard explanation (256 KiB maximum). action=publish requires title and html; updating also requires id and current version. Link returned id via task/ask artifact_ids. Members can list/get. User answers always use built-in forms outside HTML. Updating an artifact increments versions of pending questions that reference it.",
   read: "Fetch messages in priority order (reading dequeues). Use wait=me.recommended_wait to stand by, peek to inspect or history to review delivered messages. Use recover=true for all unfinished commands (non-consuming), id for a non-consuming message lookup (blocked replacements return REASSIGNMENT_PENDING), full for squad details. With a healthy listener, end the turn. Claude/ZCode must first arm the built-in host watcher from listener.arm. Only when host wake is unavailable, do at most two waits and explain manual continuation.",
   leave: "Leave the squad. Commander departure orphans it; dissolve=true disbands it. Messages already queued remain readable."
 };

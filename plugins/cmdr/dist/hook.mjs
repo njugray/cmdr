@@ -85,7 +85,7 @@ function observedHook(event, agent) {
 import { existsSync } from "node:fs";
 
 // src/shared/env.ts
-var cmdrTool = /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read)$/;
+var cmdrTool = /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read|task|artifact)$/;
 function detectAgent(env = process.env, hook) {
   if (env.CMDR_AGENT && /^[a-z][a-z0-9_-]{0,63}$/.test(env.CMDR_AGENT)) return env.CMDR_AGENT;
   if (env.ZCODE_PLUGIN_ROOT || env.ZCODE_PLUGIN_ID) return "zcode";
@@ -254,7 +254,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.4.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.5.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);

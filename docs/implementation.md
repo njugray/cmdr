@@ -1,11 +1,12 @@
 # Implementation and verification
 
-This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.4.0**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.5.0**, internal protocol **1**.
 
 ## Delivered behavior
 
 - A single on-demand daemon, Unix socket, SQLite WAL persistence, exclusive process lock, spawn coordination, idle exit, retention cleanup, log rotation and preflight-validated explicit replacement.
-- Seven MCP stdio tools with input limits, role enforcement, atomic named squads, priorities, queue backpressure, sender rate limits, correlated asks/answers, peek/history and cancellable long polling.
+- Nine MCP stdio tools with input limits, role enforcement, atomic named squads, priorities, queue backpressure, sender rate limits, correlated asks/answers, peek/history and cancellable long polling. Dashboard operations add `task` and `artifact`; `ask(target="user")` manages durable user questions.
+- A bundled React dashboard served on demand by the existing daemon over loopback HTTP/SSE, with multiple squads, durable task execution summaries, structured user replies and isolated HTML explanations.
 - Orphan/takeover/dissolve semantics, stable native identities, provisional identity migration, resume/reconnect, per-stamped-session MCP connections, Claude clear rebinding, cwd filtering and derived titles.
 - Lifecycle hooks with a flag-file fast path, metadata-only reminders, repeat throttling, actionable Stop interception, compact/resume context and fail-open behavior.
 - Operator status/list/tail/send/read, daemon controls, cleanup, environment diagnostics and printable MCP configuration.
@@ -14,7 +15,7 @@ This document records the implementation and its verification scope. The design'
 
 ## Deliberate clarifications to the design
 
-Generated `dist` files and license notices are excluded from Git, including this PR branch's history. `prepack` builds the publishable npm package; explicit package files and executable mappings include the runtime and all host plugin metadata. Source marketplace installation requires a build first. CI packs the real tarball and installs it offline into a temporary prefix, testing the CLI and seven MCP tools without external runtime dependencies. No registry publication is performed by this PR.
+Generated `dist` files and license notices are excluded from Git, including this PR branch's history. `prepack` builds the publishable npm package; explicit package files and executable mappings include the runtime, dashboard assets and all host plugin metadata. Source marketplace installation requires a build first. CI packs the real tarball and installs it offline into a temporary prefix, testing the CLI and nine MCP tools without external runtime dependencies. No registry publication is performed by this PR.
 
 Tool schemas live in `shared/schemas.ts` separately from protocol/error types, so the hook does not pull in Zod just to handle RPC errors. The member CLI now deliberately shares the tool schemas and includes their validator.
 
@@ -32,7 +33,7 @@ Cancellation is propagated from MCP through the Unix socket (`rpc.cancel`). Disc
 
 ## Automated verification
 
-The checked-in suite covers core, hooks/identity, utilities, real processes and release scenarios across five files:
+The checked-in suite covers core, hooks/identity, utilities, real processes, dashboard interactions and release scenarios:
 
 | Coverage | Evidence |
 | --- | --- |
@@ -41,6 +42,7 @@ The checked-in suite covers core, hooks/identity, utilities, real processes and 
 | Utilities | Host detection and namespaces, timeout negotiation, symlink/cwd handling, Codex/Claude titles, socket path fallback, lock recovery and config defaults |
 | Release | Member CLI workflow with hook-stamped MCP identity, cancellation and ask non-replay, missing/corrupted bundles, stale versions, bounded diagnostics, isolated handshake timeout and cleanup |
 | Real processes | Bundled MCP tool discovery, simultaneous daemon startup, messaging/ask/read, graceful restart, SIGKILL recovery, version upgrade, pooled ZCode session isolation, hook executable behavior, protocol rejection, end-to-end MCP cancellation |
+| Dashboard | Task/report ownership, reassignment gates, durable answers and immutable evidence, rollback/deduplication, HTTP authorization/CSRF, SSE invalidation, stable React DOM and drafts, installation after source/cache removal |
 
 Validation commands:
 
@@ -123,3 +125,22 @@ Verification of the independent branch on 2026-09-17 (macOS, Node 24.16.0):
 Outstanding host acceptance is the real idle→notification→read→working→done loop in refreshed Codex, Claude and ZCode sessions, including a busy-turn backlog and watcher re-arm after native task expiry. Use a disposable channel/workspace and inspect tail/list for acceptance; tool/CLI availability alone is not the success criterion. No normal ~/.cmdr state, installed plugin cache or host trust settings were changed during verification.
 
 Release preparation for 0.3.0 synchronizes npm and host manifests and injects the package version into Vitest, matching the production build so process tests validate the released version rather than the minimum compatible client version. The release is prepared from merged PR #10 in a clean worktree.
+
+## Dashboard iteration — feat/dashboard
+
+Implemented on `feat/dashboard`, based on merged `main` (`9c95e8f`). The existing daemon starts one loopback HTTP service on demand through `cmdr dashboard`. Bundled React assets, HTTP snapshots and one SSE stream per browser tab support multiple squads without page reloads. The browser uses a one-use opening token exchanged for an HttpOnly, SameSite cookie; Host/Origin checks protect writes. HTML explanations run in separate sandboxed documents with no same-origin privilege, network API access or form submission.
+
+`task` and `artifact` extend the public MCP set to nine tools; `ask(target="user")` provides structured questions. Task execution follows existing commands/reports, including acceptance, cancellation and gated reassignment. User submission, immutable evidence, receipt and stable commander-inbox message commit together. Reading an answer does not mark it handled; commanders explicitly record the result. Records survive message retention and daemon restart. The browser's SSE connection keeps the daemon available while open, and user answers use the existing attention/wake paths. No additional Agent long connection or periodic model wake is introduced. See [dashboard usage](dashboard.md) for tool parameters, limits and recovery.
+
+Frontend assets and dependency licenses are built before the integrity manifest, so native plugin caches and persisted setup runtimes carry the same complete build. The package-size review threshold against the historical 0.1.0 baseline is exceeded; the release tarball is approximately 443 kB compressed, including the production React bundle and dashboard assets. No new runtime dependency installation is required.
+
+Verification on 2026-09-17 (macOS, Node 24.16.0):
+
+- `npm run check`: **139 tests across 17 files passed**, plus formatting, strict typing, build, offline npm installation and nine-tool discovery. Source-removal/setup and npx-cache-removal checks verify dashboard resources and authenticated HTTP access from the persistent runtime.
+- Node **22.5.0**: all **16 dashboard domain, HTTP and React tests** passed, including the jsdom environment used by frontend tests.
+- `npm run verify:zcode`: the installed desktop runtime validated the release cache, discovered 1 command / 4 skills / 4 hooks / 1 MCP server, and connected nine tools after source removal. The runtime used an explicitly isolated temporary session database. No model request was made.
+- A real browser against a disposable `CMDR_HOME` verified two-squad navigation, task/member views, HTML script rendering, retained input/selection/focus during report updates and unchanged iframe content, and draft preservation across squad switches. A browser-submitted answer reached the correct commander inbox; a CLI-issued handled result appeared on the page. A subsequent daemon restart preserved tasks, answers and handling results. Temporary sessions, browser tabs and daemon state were removed afterward.
+
+Real idle-model wake and GUI trust across Codex, Claude and ZCode remain a separate acceptance check. The browser/CLI loop and deterministic wake regressions do not claim that a live model processed the answer.
+
+看板 UI 使用小队导航、任务工作区和常驻确认面板三栏布局，成员与活动位于底部。用户留言经专用 HTTP 入口进入现有指挥官角色收件箱，来源为 user、类型为 info，复用原有队列和通知，不增加 MCP 工具；留言保留与去重边界见 [Dashboard 操作说明](dashboard.md#向指挥官留言)。

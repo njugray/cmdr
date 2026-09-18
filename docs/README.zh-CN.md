@@ -8,7 +8,7 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
-**一条命令完整安装（0.4.0）**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
+**一条命令完整安装（0.5.0）**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -42,7 +42,7 @@ npm run build
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.4.0.tgz
+npm install --global ./cmdr-mcp-0.5.0.tgz
 cmdr --help
 ```
 
@@ -92,7 +92,7 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 
 ## 工具和运维
 
-固定 7 个 MCP 工具：`join`、`list`、`send`、`report`、`ask`、`read`、`leave`。读取即出队，`peek` 不出队，`history` 可回看。报告状态保存在 `message.data.status`。指挥官离队后小队变为 orphaned，可按原 ID 接管；`leave(dissolve=true)` 解散小队，但已经排队的消息仍可读取。
+固定 9 个 MCP 工具：`join`、`list`、`send`、`report`、`ask`、`read`、`leave`、`task`、`artifact`。读取即出队，`peek` 不出队，`history` 可回看。报告状态保存在 `message.data.status`。指挥官离队后小队变为 orphaned，可按原 ID 接管；`leave(dissolve=true)` 解散小队，但已经排队的消息仍可读取。
 
 ```sh
 plugins/cmdr/bin/cmdr status
@@ -122,7 +122,7 @@ npm run check
 npm run verify:zcode
 ```
 
-`check` 包括格式、类型、打包、单元/真实进程测试，以及 npm tarball 在临时目录中的离线安装和 7 个工具验证。ZCode 验证可选，需要已安装桌面端；它在临时目录使用 App 内置运行时验证插件和 7 个 MCP 工具连接，不发起模型请求。
+`check` 包括格式、类型、打包、单元/真实进程测试，以及 npm tarball 在临时目录中的离线安装和 9 个工具验证。ZCode 验证可选，需要已安装桌面端；它在临时目录使用 App 内置运行时验证插件和 9 个 MCP 工具连接，不发起模型请求。
 
 插件版本由 `package.json` 统一生成。源码修改后需重新打包，并更新宿主缓存；同版本代码变更需手动重启 daemon。CI 验证 macOS/Linux、Node 22/24、npm 包可运行性，并确保生成产物没有被 Git 跟踪。
 
@@ -130,9 +130,9 @@ npm run verify:zcode
 
 ## 安装诊断与成员 CLI
 
-工具未出现时，用 `cmdr doctor --plugin-root /实际宿主缓存中的插件目录` 检查缓存里的文件校验和与版本。加 `--deep` 会在临时数据目录中完成 MCP 握手、7 个工具检查及 daemon 访问，不操作正常小队。基础检查器独立于 dist，CLI bundle 缺失时仍可诊断；Node 缺失时先安装 Node。修复采用完整 npm 包重新注册市场、刷新/重装缓存并打开新会话，不跨安装目录链接 dist。
+工具未出现时，用 `cmdr doctor --plugin-root /实际宿主缓存中的插件目录` 检查缓存里的文件校验和与版本。加 `--deep` 会在临时数据目录中完成 MCP 握手、9 个工具检查及 daemon 访问，不操作正常小队。基础检查器独立于 dist，CLI bundle 缺失时仍可诊断；Node 缺失时先安装 Node。修复采用完整 npm 包重新注册市场、刷新/重装缓存并打开新会话，不跨安装目录链接 dist。
 
-`cmdr session join|list|send|report|ask|read|leave` 提供完整成员操作，原有运维命令含义不变。显式传 `--agent`、`--native-id`，或设置 `CMDR_AGENT`、`CMDR_SESSION_ID`；与 MCP/hook 共享会话时必须使用相同原生 ID，共享 MCP 进程不能配置一个固定 ID。CLI 显示 `presence=cli`，退出后保留成员关系和任务状态；连接结束不代表模型停工。监听由 daemon 独立管理。
+`cmdr session join|list|send|report|ask|read|leave|task|artifact` 提供完整成员操作，原有运维命令含义不变。显式传 `--agent`、`--native-id`，或设置 `CMDR_AGENT`、`CMDR_SESSION_ID`；与 MCP/hook 共享会话时必须使用相同原生 ID，共享 MCP 进程不能配置一个固定 ID。CLI 显示 `presence=cli`，退出后保留成员关系和任务状态；连接结束不代表模型停工。监听由 daemon 独立管理。
 
 ```sh
 cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
@@ -143,3 +143,26 @@ cmdr session report --agent zcode --native-id YOUR_SESSION_ID --status done --re
 指挥官必须显式声明 role=commander，report/ask 由执行者调用。结果为 JSON，失败使用非零退出码。`--input` 接受该操作完整 JSON 参数；`--timeout`、SIGINT/SIGTERM 可取消等待，等待中的 read 取消不消费后续消息。ask 取消前可能已发送，不能盲目重试。
 
 `CMDR_HOME/logs/diagnostics/` 保存有界、限频的元数据快照。hook 仍失败放行，不写消息正文；unknown 表示尚未观察到，配置存在不代表真实触发。doctor 显示 provisional 会话及等待推荐来源；升级诊断不进入任务消息队列。详细案例见[排障说明](troubleshooting.md)。
+
+## 内置看板
+
+运行 `cmdr dashboard` 打开本机看板；setup 安装使用其返回的稳定 CLI 路径。`--no-open` 输出 `127.0.0.1` 及本机非回环网卡 IPv4 的短时访问地址。服务默认监听 `0.0.0.0`，端口由系统分配；各地址使用独立的一次性凭证，本机自动打开不影响局域网链接使用。单个 React 页面切换多个小队，以任务工作区、底部成员／活动坞和常驻确认面板展示进展。用户通过内置表单提交答复，也可向当前小队的指挥官留言；留言复用现有用户消息队列，不直接修改任务。普通进展更新不会整页刷新，切换小队保留表单草稿。
+
+看板文案默认跟随系统／浏览器首选语言：中文（`zh-*`）显示简体中文，其他语言显示英文。Agent／用户内容与 HTML 展示保持原样；更改浏览器语言后刷新页面生效。
+
+看板示例（演示数据）：同页查看多个小队、任务进展和成员状态，通过右侧表单回复问题或向指挥官留言。
+
+![中文看板：任务进展、成员状态和用户答复面板](../.github/assets/dashboard/main.jpg)
+
+<details>
+<summary>查看英文版看板及任务详情</summary>
+
+英文示例的任务、问题和 HTML 内容使用预先准备的英文演示数据，不是自动翻译的 Agent 消息。
+
+![英文看板示例](../.github/assets/dashboard/main-en.png)
+
+![英文任务详情与常驻答复表单](../.github/assets/dashboard/detail-en.png)
+
+</details>
+
+指挥官通过 `task` 管理任务，`send(task_id=...)` 关联派发，`ask(target="user")` 创建问题，`artifact` 发布隔离的 HTML 补充说明。用户答案持久化后进入当前指挥官收件箱；读取不代表处理，使用 `ask(target="user", action="handle", id=..., version=..., result=...)` 明确记录结果。关闭页面不结束小队。数据隔离、重试、恢复、HTML 限制和升级见[看板使用说明](dashboard.md)。

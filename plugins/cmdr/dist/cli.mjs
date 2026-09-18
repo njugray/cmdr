@@ -240,26 +240,26 @@ var Rpc = class extends EventEmitter {
     if (this.socket.destroyed) return Promise.reject(new CmdrError("DAEMON_UNAVAILABLE"));
     if (signal?.aborted) return Promise.reject(new CmdrError("REQUEST_CANCELLED"));
     return new Promise((resolve4, reject) => {
-      const id = this.next++;
+      const id2 = this.next++;
       const cancel = (code) => {
-        const p = this.pending.get(id);
+        const p = this.pending.get(id2);
         if (!p) return;
-        this.pending.delete(id);
+        this.pending.delete(id2);
         clearTimeout(p.timer);
         p.cleanup();
-        this.notify("rpc.cancel", { id });
+        this.notify("rpc.cancel", { id: id2 });
         reject(new CmdrError(code));
       };
       const abort = () => cancel("REQUEST_CANCELLED");
       const timer = setTimeout(() => cancel("DAEMON_UNAVAILABLE"), timeout);
-      this.pending.set(id, {
+      this.pending.set(id2, {
         resolve: resolve4,
         reject,
         timer,
         cleanup: () => signal?.removeEventListener("abort", abort)
       });
       signal?.addEventListener("abort", abort, { once: true });
-      this.send({ jsonrpc: "2.0", id, method, params });
+      this.send({ jsonrpc: "2.0", id: id2, method, params });
     });
   }
   notify(method, params) {
@@ -271,7 +271,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.4.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.5.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -4664,8 +4664,70 @@ var coerce = {
 };
 var NEVER = INVALID;
 
+// src/shared/dashboard.ts
+var DASHBOARD_LIMITS = {
+  recordsPerKind: 200,
+  runsPerTask: 100,
+  htmlBytes: 256 * 1024,
+  htmlBytesPerSquad: 8 * 1024 * 1024
+};
+
+// src/shared/dashboard-schemas.ts
+var id = external_exports.string().min(1).max(128);
+var text = external_exports.string().max(8e3);
+var artifacts = external_exports.array(id).max(8);
+var taskFields = {
+  action: external_exports.enum(["create", "update", "get", "list", "archive", "restore"]).default("list"),
+  id: id.optional(),
+  title: external_exports.string().trim().min(1).max(200).optional(),
+  description: text.optional(),
+  acceptance: text.optional(),
+  position: external_exports.number().finite().optional(),
+  artifact_ids: artifacts.optional(),
+  archived: external_exports.boolean().optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var questionFields = {
+  target: external_exports.enum(["commander", "user"]).default("commander"),
+  action: external_exports.enum(["create", "update", "get", "list", "withdraw", "handle"]).default("create"),
+  id: id.optional(),
+  task_id: id.optional(),
+  version: external_exports.number().int().positive().optional(),
+  description: text.optional(),
+  kind: external_exports.enum(["single", "multiple", "text", "confirm"]).optional(),
+  options: external_exports.array(external_exports.object({ id, label: external_exports.string().trim().min(1).max(300) }).strict()).max(20).optional(),
+  artifact_ids: artifacts.optional(),
+  result: text.optional(),
+  status: external_exports.enum(["pending", "answered", "handled", "withdrawn"]).optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var artifactFields = {
+  action: external_exports.enum(["publish", "get", "list"]).default("publish"),
+  id: id.optional(),
+  version: external_exports.number().int().positive().optional(),
+  title: external_exports.string().trim().min(1).max(200).optional(),
+  html: external_exports.string().min(1).refine((s) => Buffer.byteLength(s) <= DASHBOARD_LIMITS.htmlBytes, "MESSAGE_TOO_LARGE").optional(),
+  offset: external_exports.number().int().min(0).default(0),
+  limit: external_exports.number().int().min(1).max(50).default(20)
+};
+var answerSchema = external_exports.object({
+  question_id: id,
+  version: external_exports.number().int().positive(),
+  submission_id: external_exports.string().uuid(),
+  selected: external_exports.array(id).max(20).default([]),
+  text: text.default(""),
+  confirmed: external_exports.boolean().optional()
+}).strict();
+var userMessageSchema = external_exports.object({
+  squad_id: id,
+  submission_id: external_exports.string().uuid(),
+  text: external_exports.string().trim().min(1).max(8e3)
+}).strict();
+
 // src/shared/schemas.ts
-var text = external_exports.string().min(1).refine((v) => Buffer.byteLength(v) <= LIMITS.maxBody, "MESSAGE_TOO_LARGE");
+var text2 = external_exports.string().min(1).refine((v) => Buffer.byteLength(v) <= LIMITS.maxBody, "MESSAGE_TOO_LARGE");
 var data = external_exports.record(external_exports.unknown()).refine((v) => Buffer.byteLength(JSON.stringify(v)) <= LIMITS.maxData, "MESSAGE_TOO_LARGE").optional();
 var wait = external_exports.number().min(0).max(300).default(0);
 var identity = { _cmdr_session: external_exports.string().min(1).max(256).optional() };
@@ -4675,7 +4737,7 @@ var schemas = {
     role: external_exports.enum(["commander", "executor"]).optional(),
     squad: external_exports.string().optional(),
     name: external_exports.string().trim().min(1).max(64).optional(),
-    note: text.optional(),
+    note: text2.optional(),
     squad_name: external_exports.string().trim().min(1).max(64).optional(),
     takeover: external_exports.boolean().default(false),
     standby: external_exports.enum(["auto", "manual"]).optional(),
@@ -4690,17 +4752,27 @@ var schemas = {
   report: external_exports.object({
     ...identity,
     status: external_exports.enum(["ready", "working", "blocked", "done", "failed", "cancelled"]),
-    message: text,
+    message: text2,
     reply_to: external_exports.string().optional(),
     data
   }).strict(),
-  ask: external_exports.object({ ...identity, question: text, wait, reply_to: external_exports.string().optional(), data }).strict(),
+  ask: external_exports.object({
+    ...identity,
+    ...questionFields,
+    question: text2.optional(),
+    wait,
+    reply_to: external_exports.string().optional(),
+    data
+  }).strict(),
+  task: external_exports.object({ ...identity, ...taskFields }).strict(),
+  artifact: external_exports.object({ ...identity, ...artifactFields }).strict(),
   send: external_exports.object({
     ...identity,
     to: external_exports.union([external_exports.string().min(1), external_exports.array(external_exports.string().min(1)).min(1).max(1e3)]),
-    message: text,
+    message: text2,
     type: external_exports.enum(["command", "cancel", "answer", "info"]).default("command"),
     task_key: external_exports.string().min(1).max(128).optional(),
+    task_id: external_exports.string().min(1).max(128).optional(),
     reassign: external_exports.string().optional(),
     attention: external_exports.boolean().optional(),
     priority: external_exports.enum(["high", "normal", "low"]).optional(),
@@ -4718,7 +4790,7 @@ var schemas = {
     recover: external_exports.boolean().default(false),
     full: external_exports.boolean().default(false)
   }).strict(),
-  leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text.optional() }).strict()
+  leave: external_exports.object({ ...identity, dissolve: external_exports.boolean().default(false), message: text2.optional() }).strict()
 };
 function parse(tool, args) {
   const r = schemas[tool].safeParse(args);
@@ -4738,7 +4810,9 @@ var methods = {
   report: "msg.report",
   ask: "msg.ask",
   read: "msg.read",
-  leave: "session.leave"
+  leave: "session.leave",
+  task: "dashboard.task",
+  artifact: "dashboard.artifact"
 };
 
 // src/shared/env.ts
@@ -4787,6 +4861,7 @@ async function runSession(argv) {
         "reply-to": { type: "string" },
         priority: { type: "string" },
         "task-key": { type: "string" },
+        "task-id": { type: "string" },
         reassign: { type: "string" },
         rebind: { type: "string" },
         takeover: { type: "boolean" },
@@ -4804,13 +4879,13 @@ async function runSession(argv) {
     });
     if (v.help) {
       console.log(
-        "cmdr session join|list|send|report|ask|read|leave --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual."
+        "cmdr session join|list|send|report|ask|read|leave|task|artifact --agent HOST --native-id ID [--input JSON] [--timeout SECONDS]\nUse --squad-name for join; --status and text for report; --to and text for send; text for ask. read supports --wait/--peek/--history. IDs must match the host session; read also supports --recover/--id/--full/--limit. Configure automatic wake with cmdr standby start --session SID; unsupported hosts remain manual."
       );
       return;
     }
     const action = args[0];
     if (!Object.hasOwn(schemas, action))
-      throw new Error("Expected session join|list|send|report|ask|read|leave");
+      throw new Error("Expected session join|list|send|report|ask|read|leave|task|artifact");
     const agent = v.agent || process.env.CMDR_AGENT;
     const native = v["native-id"] || process.env.CMDR_SESSION_ID;
     if (!agent || !/^[a-z][a-z0-9_-]{0,63}$/.test(agent))
@@ -4837,6 +4912,7 @@ async function runSession(argv) {
       "reply-to": "reply_to",
       priority: "priority",
       "task-key": "task_key",
+      "task-id": "task_id",
       reassign: "reassign",
       rebind: "rebind",
       takeover: "takeover",
@@ -4952,9 +5028,9 @@ async function probeMcp(root) {
       reject(new Error("MCP exited"));
       return;
     }
-    const id = ++requestId;
-    pending.set(id, { resolve: resolve4, reject });
-    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    const id2 = ++requestId;
+    pending.set(id2, { resolve: resolve4, reject });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: id2, method, params }) + "\n");
   });
   let timer;
   try {
@@ -4970,8 +5046,8 @@ async function probeMcp(root) {
         );
         const result = await request("tools/list", {});
         const names = result.tools?.map((t) => t.name).sort();
-        if (JSON.stringify(names) !== JSON.stringify(["ask", "join", "leave", "list", "read", "report", "send"]))
-          throw new Error("Expected seven cmdr tools");
+        if (JSON.stringify(names) !== JSON.stringify(Object.keys(schemas).sort()))
+          throw new Error("Unexpected cmdr tool set");
         const call = await request("tools/call", { name: "list", arguments: {} });
         if (call.isError) throw new Error("MCP tool cannot reach daemon");
         return { ok: true, tools: names, isolated: true };
@@ -5837,9 +5913,9 @@ function object(value, label) {
     throw new Error(`${label} must be an object; no configuration was changed.`);
   return value;
 }
-function jsonConfig(text2, label) {
+function jsonConfig(text3, label) {
   try {
-    return object(JSON.parse(text2 || "{}"), label);
+    return object(JSON.parse(text3 || "{}"), label);
   } catch {
     throw new Error(`Cannot parse ${label} as a JSON object; no configuration was changed.`);
   }
@@ -5876,10 +5952,10 @@ function mergeJsonServer(config, command, host) {
   const servers = parent[key] = object(parent[key] ?? {}, key);
   servers.cmdr = serverConfig(servers.cmdr, command, host);
 }
-function codexConfig(text2, command) {
+function codexConfig(text3, command) {
   let config;
   try {
-    config = parse2(text2, { integersAsBigInt: "asNeeded" });
+    config = parse2(text3, { integersAsBigInt: "asNeeded" });
   } catch {
     throw new Error("Cannot parse Codex config.toml; no configuration was changed.");
   }
@@ -5888,20 +5964,20 @@ function codexConfig(text2, command) {
   const server = serverConfig(servers.cmdr, command, "codex");
   const block = `${begin}
 ${stringify({ mcp_servers: { cmdr: server } })}${end}`;
-  const start = text2.indexOf(begin), stop = text2.indexOf(end);
+  const start = text3.indexOf(begin), stop = text3.indexOf(end);
   let output;
   if (start >= 0 || stop >= 0) {
-    if (start < 0 || stop < start || text2.indexOf(begin, start + begin.length) >= 0 || text2.indexOf(end, stop + end.length) >= 0)
+    if (start < 0 || stop < start || text3.indexOf(begin, start + begin.length) >= 0 || text3.indexOf(end, stop + end.length) >= 0)
       throw new Error(
         "Invalid cmdr setup markers in config.toml. Restore the managed block before retrying."
       );
-    output = text2.slice(0, start) + block + text2.slice(stop + end.length);
+    output = text3.slice(0, start) + block + text3.slice(stop + end.length);
   } else {
     if (servers.cmdr !== void 0)
       throw new Error(
         "The cmdr MCP entry is not managed by setup. Remove that entry before retrying."
       );
-    output = `${text2}${text2 && !text2.endsWith("\n") ? "\n" : ""}
+    output = `${text3}${text3 && !text3.endsWith("\n") ? "\n" : ""}
 ${block}
 `;
   }
@@ -6314,6 +6390,7 @@ if (process.argv[2] === "setup") {
       follow: { type: "boolean" },
       full: { type: "boolean" },
       json: { type: "boolean" },
+      "no-open": { type: "boolean" },
       help: { type: "boolean" }
     }
   });
@@ -6404,9 +6481,22 @@ if (process.argv[2] === "setup") {
   try {
     if (v.help)
       process.stdout.write(
-        "cmdr status | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
+        "cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
       );
-    else if (cmd === "config") {
+    else if (cmd === "dashboard") {
+      const result = await call("admin.dashboard", {}, true);
+      print(result);
+      if (!v["no-open"]) {
+        try {
+          execFileSync(process.platform === "darwin" ? "open" : "xdg-open", [result.url], {
+            stdio: "ignore",
+            timeout: 5e3
+          });
+        } catch {
+          console.error("Open the printed URL in a local browser (valid for 60 seconds).");
+        }
+      }
+    } else if (cmd === "config") {
       const agent = v.agent || "generic";
       if (!/^[a-z][a-z0-9_-]{0,63}$/.test(agent))
         throw new Error("Invalid --agent: use lowercase letters, digits, underscores or hyphens.");

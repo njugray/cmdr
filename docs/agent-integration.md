@@ -2,7 +2,7 @@
 
 Build a source checkout with `npm ci && npm run build`, or use the unpacked/installed npm package. Git does not contain generated runtime bundles. `npm pack` / `npm publish` builds and includes them automatically.
 
-The daemon and message model accept arbitrary lowercase Agent IDs (`[a-z][a-z0-9_-]{0,63}`), not a closed Claude/Codex enum. All hosts share the same seven MCP tools. Specialized adapters add identity, working-directory discovery and lifecycle reminders; none is required to use the queue.
+The daemon and message model accept arbitrary lowercase Agent IDs (`[a-z][a-z0-9_-]{0,63}`), not a closed Claude/Codex enum. All hosts share the same nine MCP tools. Specialized adapters add identity, working-directory discovery and lifecycle reminders; none is required to use the queue.
 
 For automatic runtime, skill and user MCP/hooks installation, use [standalone setup](setup.md). The manual and native-plugin contracts follow below.
 
@@ -73,7 +73,7 @@ npm run verify:zcode
 ZCODE_RUNTIME_PATH=/path/to/glm/zcode.cjs npm run verify:zcode
 ```
 
-By default this command builds an npm tarball and tests its unpacked contents. An existing unpacked package root can be passed as `npm run verify:zcode -- /path/to/package`. The test invokes the actual desktop runtime's stdio app-server, validates and installs cmdr in an isolated workspace/storage directory, checks discovered components, and confirms a connected MCP server with seven tools. It makes no model calls and does not install into the user's normal plugin registry. GUI-driven model collaboration remains a separate manual check.
+By default this command builds an npm tarball and tests its unpacked contents. An existing unpacked package root can be passed as `npm run verify:zcode -- /path/to/package`. The test invokes the actual desktop runtime's stdio app-server, validates and installs cmdr in an isolated workspace/storage directory, checks discovered components, and confirms a connected MCP server with nine tools. It makes no model calls and does not install into the user's normal plugin registry. GUI-driven model collaboration remains a separate manual check.
 
 References checked 2026-09-08: [ZCode plugin format](https://zcode.z.ai/cn/docs/plugin), [MCP configuration](https://zcode.z.ai/cn/docs/mcp-services), [hook contracts](https://zcode.z.ai/cn/docs/hooks). Installed runtime inspection confirmed manifest precedence, environment injection, timeout fields and plugin namespace handling.
 

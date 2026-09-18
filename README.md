@@ -8,7 +8,7 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-**One-command setup (0.4.0):** replace `claude-code` with `codex` or `zcode` for your host.
+**One-command setup (0.5.0):** replace `claude-code` with `codex` or `zcode` for your host.
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -42,7 +42,7 @@ For distribution, `npm pack` (or `npm publish`) runs `prepack` to build the four
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.4.0.tgz
+npm install --global ./cmdr-mcp-0.5.0.tgz
 cmdr --help
 ```
 
@@ -101,7 +101,7 @@ Codex wakes through app-server proxy or the `codex queue` fallback. Claude uses 
 
 ## Tools
 
-Exactly seven MCP tools are exposed, independently of the host:
+Exactly nine MCP tools are exposed, independently of the host:
 
 | Tool | Purpose |
 | --- | --- |
@@ -109,17 +109,40 @@ Exactly seven MCP tools are exposed, independently of the host:
 | `list` | Task ownership, unacknowledged age, progress, connection state and listener health |
 | `send` | Commands, cancel, answers and info; task_key deduplication and gated reassign |
 | `report` | Executor ready, working, blocked, done, failed or cancelled reports |
-| `ask` | Executor questions, optionally waiting for a correlated answer |
+| `ask` | Executor questions, or commander `target=user` dashboard questions and handling receipts |
 | `read` | Priority dequeue, peek/history, recover, ID lookup and long polling |
 | `leave` | Leave, orphan or dissolve a squad |
+| `task` | Create, update, query and archive persistent dashboard tasks |
+| `artifact` | Publish/query isolated HTML explanations for tasks and questions |
 
 Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. Delivery is distinct from acceptance and completion. `read(recover=true)` non-destructively lists all unfinished commands, including already-read work. `pending=0`, `unread=0` and `offline` never release task ownership. `read`/`list` are compact by default; use `full=true` for expanded metadata. ID lookups also enforce the reassignment gate before exposing queued replacement work. Listings never include command bodies; use `read(id=...)` for your own inbox or operator `tail --full` for observation. No exactly-once execution guarantee is made.
+
+## Local dashboard
+
+Run `cmdr dashboard` (or the stable CLI path printed by setup) to open the built-in React dashboard. `--no-open` prints short-lived access URLs for `127.0.0.1` and the machine’s non-loopback IPv4 addresses. The server binds to `0.0.0.0` on a system-assigned port; each address has its own single-use token, so opening the local link does not consume the LAN links. One page switches between squads, with a task workspace, a member/activity dock, and a persistent confirmation panel. Users can submit structured answers or send a note to the selected squad’s commander; notes enter the existing user-message queue without directly changing tasks. The HTTP/SSE service runs inside the existing daemon; closing the page does not stop collaboration.
+
+Dashboard UI copy follows the system/browser’s preferred language: Chinese (`zh-*`) uses Simplified Chinese; other languages use English. Agent/user content and HTML artifacts remain unchanged. Reload after changing the browser language.
+
+Example dashboard with demo data: multiple squads, task progress, member status, HTML explanations and user answers. Agent content in this example was written in English; it is not automatically translated.
+
+![English dashboard showing the task board and user decision panel](.github/assets/dashboard/main-en.png)
+
+<details>
+<summary>Task details with the answer form kept open</summary>
+
+![English task details, execution history and user answer form](.github/assets/dashboard/detail-en.png)
+
+</details>
+
+[View the Chinese dashboard example](.github/assets/dashboard/main.jpg).
+
+Commanders create tasks with `task(action="create", title=...)`, dispatch using `send(task_id=..., to=..., message=...)`, and ask the user with `ask(target="user", question=..., kind="single|multiple|text|confirm")`. Answers enter the stable commander inbox; explicitly use `ask(target="user", action="handle", id=..., version=..., result=...)` after processing. `artifact` publishes self-contained sandboxed HTML explanations. See [dashboard operations and limits](docs/dashboard.md).
 
 ## Installation diagnostics and member CLI
 
 If cmdr tools are absent, inspect the host's actual plugin cache with `cmdr doctor --plugin-root /path/to/cached/plugin`. Add `--deep` to check MCP and daemon access in a temporary state directory. The checker works even when the inspected CLI bundle is missing. Refresh/reinstall damaged caches from the complete npm package and start a new session.
 
-`cmdr session join|list|send|report|ask|read|leave` provides member operations when MCP tools are unavailable. Supply `--agent` and `--native-id` (or `CMDR_AGENT`/`CMDR_SESSION_ID`); use the same native ID as the host. These commands retain membership and messages after exit, and display connection presence as `cli`; execution state is reported separately.
+`cmdr session join|list|send|report|ask|read|leave|task|artifact` provides member operations when MCP tools are unavailable. Supply `--agent` and `--native-id` (or `CMDR_AGENT`/`CMDR_SESSION_ID`); use the same native ID as the host. These commands retain membership and messages after exit, and display connection presence as `cli`; execution state is reported separately.
 
 ```sh
 cmdr session join --agent zcode --native-id YOUR_SESSION_ID --squad-name my-project
@@ -172,7 +195,7 @@ npm run check
 npm run verify:zcode   # optional: requires the locally installed ZCode desktop runtime
 ```
 
-`npm run check` checks formatting/types, builds the four entry points, runs unit/real-process tests, then packs and installs the npm tarball offline in a temporary prefix to verify the CLI and seven MCP tools. CI runs on macOS/Linux with Node 22/24 and checks generated bundles are not tracked by Git. The optional ZCode check validates, installs and connects the plugin using an isolated desktop runtime, without making a model request.
+`npm run check` checks formatting/types, builds the four entry points, runs unit/real-process tests, then packs and installs the npm tarball offline in a temporary prefix to verify the CLI and nine MCP tools. CI runs on macOS/Linux with Node 22/24 and checks generated bundles are not tracked by Git. The optional ZCode check validates, installs and connects the plugin using an isolated desktop runtime, without making a model request.
 
 For development, `claude --plugin-dir ./plugins/cmdr` loads the plugin directly. Installed hosts use cached copies: reinstall/refresh after changing a plugin. Version numbers come from `package.json`; after same-version changes, restart the daemon explicitly. Generated bundles and third-party license notices are ignored by Git and included in the npm package.
 

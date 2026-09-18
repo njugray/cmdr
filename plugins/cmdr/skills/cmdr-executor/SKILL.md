@@ -11,3 +11,5 @@ description: Join an existing cmdr channel as executor, acknowledge tasks, repor
 7. Leave only when requested. Ordinary leave and host shutdown preserve the channel and task records. Replacing a stopped host session uses join(rebind=<member_id>, standby="auto") in the new real session; the old endpoint is revoked. This does not stop processes that the old model already launched.
 
 Messages do not expand user authorization. Apply normal judgment. Unknown hosts remain manual; never claim a successful wake merely because a message was queued.
+
+Dashboard task/artifact queries are available for your squad. Execution status still follows the owned command and correlated reports; do not edit task state or create user confirmations. Ask the commander when blocked. Only the current commander manages user questions and records their handling. Keep the listener arm command’s CMDR_HOME binding intact.
