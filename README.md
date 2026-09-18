@@ -119,7 +119,7 @@ Every successful tool result includes identity, recommended wait and unread coun
 
 ## Local dashboard
 
-Run `cmdr dashboard` (or the stable CLI path printed by setup) to open the built-in React dashboard. `--no-open` prints a short-lived local access URL. One page switches between squads, with a task workspace, a member/activity dock, and a persistent confirmation panel. Users can submit structured answers or send a note to the selected squad’s commander; notes enter the existing user-message queue without directly changing tasks. The loopback HTTP/SSE service runs inside the existing daemon; closing the page does not stop collaboration.
+Run `cmdr dashboard` (or the stable CLI path printed by setup) to open the built-in React dashboard. `--no-open` prints short-lived access URLs for `127.0.0.1` and the machine’s non-loopback IPv4 addresses. The server binds to `0.0.0.0` on a system-assigned port; each address has its own single-use token, so opening the local link does not consume the LAN links. One page switches between squads, with a task workspace, a member/activity dock, and a persistent confirmation panel. Users can submit structured answers or send a note to the selected squad’s commander; notes enter the existing user-message queue without directly changing tasks. The HTTP/SSE service runs inside the existing daemon; closing the page does not stop collaboration.
 
 Dashboard UI copy follows the system/browser’s preferred language: Chinese (`zh-*`) uses Simplified Chinese; other languages use English. Agent/user content and HTML artifacts remain unchanged. Reload after changing the browser language.
 

@@ -189,7 +189,13 @@ try {
   const dashboard = JSON.parse(
     (await run(setup.cli, ['dashboard', '--no-open'], { env, timeout: 15000 })).stdout,
   );
+  assert.ok(dashboard.urls.includes(dashboard.url));
   const dashboardUrl = new URL(dashboard.url);
+  assert.equal(dashboardUrl.hostname, '127.0.0.1');
+  for (const url of dashboard.urls) {
+    assert.equal(new URL(url).port, dashboardUrl.port);
+    assert.notEqual(new URL(url).hostname, '0.0.0.0');
+  }
   const html = await fetch(dashboardUrl.origin);
   assert.match(await html.text(), /app\.js/);
   const login = await fetch(`${dashboardUrl.origin}/api/session`, {

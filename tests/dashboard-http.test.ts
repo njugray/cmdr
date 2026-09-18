@@ -1,4 +1,5 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -6,6 +7,11 @@ import { fixture } from './helpers.js';
 import { DashboardServer } from '../src/daemon/dashboard-http.js';
 import { randomUUID } from 'node:crypto';
 import { get as httpGet, request as httpRequest } from 'node:http';
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, networkInterfaces: vi.fn(actual.networkInterfaces) };
+});
 
 const assets = {
   'index.html': '<!doctype html><html><body>Dashboard HTTP fixture</body></html>',
@@ -15,6 +21,7 @@ const assets = {
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
+  vi.mocked(os.networkInterfaces).mockReset();
 });
 async function setup() {
   const f = fixture();
@@ -365,4 +372,90 @@ it('bounds queued SSE writes and allows a fresh subscription after dropping a sl
   expect(new TextDecoder().decode((await resumedReader.read()).value)).toContain(x.id);
   abort.abort();
   await expect.poll(() => x.server.active).toBe(false);
+});
+
+it('advertises each IPv4 address with its own single-use token and enforces same-origin LAN access', async () => {
+  const address = (ip: string, internal = false): os.NetworkInterfaceInfoIPv4 => ({
+    address: ip,
+    family: 'IPv4',
+    internal,
+    netmask: '255.255.255.0',
+    mac: '00:00:00:00:00:00',
+    cidr: `${ip}/24`,
+  });
+  vi.mocked(os.networkInterfaces).mockReturnValue({
+    lo: [address('127.0.0.1', true)],
+    lan: [address('192.0.2.10'), address('192.0.2.10')],
+    other: [address('198.51.100.10')],
+  });
+  const x = await setup();
+  const opened = await x.server.open();
+  const urls = opened.urls.map((url) => new URL(url));
+  expect(opened.url).toBe(opened.urls[0]);
+  expect(urls.map((url) => url.hostname)).toEqual(['127.0.0.1', '192.0.2.10', '198.51.100.10']);
+  expect(new Set(urls.map((url) => url.port)).size).toBe(1);
+  expect(new Set(urls.map((url) => url.hash)).size).toBe(3);
+  // Connect locally while exercising the exact Host/Origin headers used on a LAN.
+  const request = (url: URL, path: string, body?: unknown, origin = url.origin, cookie?: string) =>
+    new Promise<{ status: number | undefined; body: string; cookie?: string }>(
+      (resolve, reject) => {
+        const req = httpRequest(
+          x.origin + path,
+          {
+            method: body === undefined ? 'GET' : 'POST',
+            headers: {
+              Host: url.host,
+              Origin: origin,
+              'Content-Type': 'application/json',
+              ...(cookie ? { Cookie: cookie } : {}),
+            },
+          },
+          (res) => {
+            let data = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => {
+              data += chunk;
+            });
+            res.on('end', () =>
+              resolve({
+                status: res.statusCode,
+                body: data,
+                cookie: res.headers['set-cookie']?.[0].split(';')[0],
+              }),
+            );
+            res.on('error', reject);
+          },
+        );
+        req.on('error', reject);
+        req.end(body === undefined ? undefined : JSON.stringify(body));
+      },
+    );
+  expect((await request(urls[0], '/api/session', { token: urls[0].hash.slice(1) })).status).toBe(
+    200,
+  );
+  // Opening the local link must not consume the LAN link's credential.
+  expect(
+    (await request(urls[1], '/api/session', { token: urls[1].hash.slice(1) }, urls[0].origin))
+      .status,
+  ).toBe(403);
+  expect((await request(urls[1], '/api/session', { token: urls[2].hash.slice(1) })).status).toBe(
+    401,
+  );
+  const login = await request(urls[1], '/api/session', { token: urls[1].hash.slice(1) });
+  expect(login.status).toBe(200);
+  expect(login.cookie).toBeTruthy();
+  expect((await request(urls[1], '/api/session', { token: urls[1].hash.slice(1) })).status).toBe(
+    401,
+  );
+  expect((await request(urls[1], '/api/state')).status).toBe(401);
+  const state = await request(urls[1], '/api/state', undefined, urls[1].origin, login.cookie);
+  expect(state.status).toBe(200);
+  expect(JSON.parse(state.body).home).toBe(x.f.home);
+  expect((await request(new URL(`http://203.0.113.5:${urls[0].port}`), '/')).status).toBe(403);
+  // Refreshing the advertised addresses removes stale interfaces from the allowlist.
+  vi.mocked(os.networkInterfaces).mockReturnValue({ lo: [address('127.0.0.1', true)] });
+  expect((await x.server.open()).urls).toHaveLength(1);
+  expect(
+    (await request(urls[1], '/api/state', undefined, urls[1].origin, login.cookie)).status,
+  ).toBe(403);
 });

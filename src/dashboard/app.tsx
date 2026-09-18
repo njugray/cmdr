@@ -1043,7 +1043,7 @@ export function App() {
             <header className="page-header">
               <h1 title={squad?.name || text('小队看板')}>{squad?.name || text('小队看板')}</h1>
               <span className="squad-code mono">{squad?.id}</span>
-              <span className="private-badge">{text('本机私有')}</span>
+              <span className="private-badge">{text('自托管')}</span>
               <section className="metrics" aria-label={text('小队概览')}>
                 {[
                   [text('看板任务'), squad?.task_count],

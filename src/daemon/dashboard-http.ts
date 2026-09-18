@@ -6,6 +6,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { Core } from './core.js';
 import { CmdrError, fail } from '../shared/protocol.js';
 import { VERSION } from '../shared/version.js';
@@ -20,10 +21,11 @@ export class DashboardServer {
   private app = new Hono<{ Bindings: HttpBindings }>();
   private server: Server;
   private streams = new Set<{ send: (data: string) => void; close: () => void }>();
-  private openings = new Map<string, number>();
+  private openings = new Map<string, { expires: number; origin: string }>();
   private session = token();
   private cookie = '';
-  private origin = '';
+  private origins = new Set<string>();
+  private port = 0;
   private heartbeat?: NodeJS.Timeout;
   private starting?: Promise<void>;
   private assets = new Map<string, { body: Buffer; type: string }>();
@@ -53,13 +55,26 @@ export class DashboardServer {
       });
     await this.starting;
     const now = Date.now();
-    for (const [key, expires] of this.openings) if (expires < now) this.openings.delete(key);
-    if (this.openings.size >= 50) this.openings.delete(this.openings.keys().next().value!);
-    const key = token();
-    this.openings.set(key, now + 60_000);
+    const addresses = new Set(['127.0.0.1']);
+    for (const entries of Object.values(networkInterfaces())) {
+      for (const entry of entries || []) {
+        if (entry.family === 'IPv4' && !entry.internal) addresses.add(entry.address);
+      }
+    }
+    this.origins = new Set([...addresses].map((address) => `http://${address}:${this.port}`));
+    for (const [key, opening] of this.openings) {
+      if (opening.expires < now || !this.origins.has(opening.origin)) this.openings.delete(key);
+    }
+    const urls = [...this.origins].map((origin) => {
+      if (this.openings.size >= 50) this.openings.delete(this.openings.keys().next().value!);
+      const key = token();
+      this.openings.set(key, { expires: now + 60_000, origin });
+      return `${origin}/#${key}`;
+    });
     this.touch();
-    return { url: `${this.origin}/#${key}`, home: this.core.paths.home, version: VERSION };
+    return { url: urls[0], urls, home: this.core.paths.home, version: VERSION };
   }
+
   private async start() {
     for (const [name, type] of [
       ['index.html', 'text/html; charset=utf-8'],
@@ -69,14 +84,14 @@ export class DashboardServer {
       this.assets.set(name, { body: readFileSync(new URL(name, this.assetRoot)), type });
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject);
-      this.server.listen(0, '127.0.0.1', () => {
+      this.server.listen(0, '0.0.0.0', () => {
         this.server.off('error', reject);
         resolve();
       });
     });
     const address = this.server.address();
     if (!address || typeof address === 'string') throw new Error('Dashboard failed to bind');
-    this.origin = `http://127.0.0.1:${address.port}`;
+    this.port = address.port;
     this.cookie = `cmdr_dashboard_${address.port}`;
     this.core.dashboardObservers.add(this.notify);
     this.heartbeat = setInterval(() => {
@@ -154,11 +169,12 @@ export class DashboardServer {
         'Content-Security-Policy',
         "default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       );
-      if (c.req.header('host') !== this.origin.slice('http://'.length)) fail('FORBIDDEN');
+      const requestOrigin = `http://${c.req.header('host')}`;
+      if (!this.origins.has(requestOrigin)) fail('FORBIDDEN');
       const origin = c.req.header('origin');
-      if ((origin && origin !== this.origin) || c.req.header('sec-fetch-site') === 'cross-site')
+      if ((origin && origin !== requestOrigin) || c.req.header('sec-fetch-site') === 'cross-site')
         fail('FORBIDDEN');
-      if (c.req.method === 'POST' && origin !== this.origin) fail('FORBIDDEN');
+      if (c.req.method === 'POST' && origin !== requestOrigin) fail('FORBIDDEN');
       // Hono implicitly maps HEAD to GET; never create an SSE subscription for HEAD.
       if (!['GET', 'POST'].includes(c.req.method)) fail('NOT_FOUND');
       await next();
@@ -183,8 +199,8 @@ export class DashboardServer {
     ] as const;
     app.post('/api/session', ...jsonBody, async (c) => {
       const body = await this.body(c);
-      const expires = typeof body?.token === 'string' ? this.openings.get(body.token) : undefined;
-      if (!expires || expires < Date.now())
+      const opening = typeof body?.token === 'string' ? this.openings.get(body.token) : undefined;
+      if (!opening || opening.expires < Date.now() || opening.origin !== c.req.header('origin'))
         fail('UNAUTHORIZED', 'Open the dashboard again with cmdr dashboard');
       this.openings.delete(body.token);
       setCookie(c, this.cookie, this.session, { httpOnly: true, sameSite: 'Strict', path: '/' });

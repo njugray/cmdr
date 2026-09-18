@@ -154,7 +154,7 @@ const english = {
   '连接中断，正在重连。显示的是最近一次内容。':
     'Disconnected. Reconnecting… Showing the last received content.',
   小队看板: 'Squad dashboard',
-  本机私有: 'Local only',
+  自托管: 'Self-hosted',
   小队概览: 'Squad overview',
   看板任务: 'Tasks',
   待你回复: 'Needs answer',
