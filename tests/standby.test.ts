@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { fixture } from './helpers.js';
 import { StandbyManager } from '../src/daemon/standby.js';
+import { Store } from '../src/daemon/store.js';
 import type { Context } from '../src/daemon/core.js';
 import type { HostAdapter } from '../src/daemon/adapters/codex.js';
 import { WakeDeferred, type WakeRequest, type LifecycleEvent } from '../src/shared/protocol.js';
@@ -346,4 +347,53 @@ it('keeps broadcast info quiet, wakes for direct info and reminds host sessions 
   const hook = await f.hook(c, 'SessionStart');
   expect(hook.inject).toContain('re-arm');
   expect(hook.inject).not.toContain('direct');
+});
+it('moves the standby listener with the member when Claude clear re-identifies it', async () => {
+  f = fixture();
+  manager = new StandbyManager(f.core);
+  const c = await f.session('claude', 'old', { host_pid: 12345, cwd: '/project' });
+  await f.core.handle(c, 'session.join', { role: 'commander', squad_name: 'work' });
+  manager.configure({ sid: c.sid, action: 'start' });
+  manager.watch(c.sid!, 'before-clear', 'attach');
+  f.store.saveStandby({
+    ...f.store.standby(c.sid!)!,
+    request: { id: 'w1', fingerprint: 'f', message_ids: [], created_at: 0, state: 'accepted' },
+  });
+  const restored = await f.core.handle({ notify: () => {} }, 'hook.event', {
+    agent: 'claude',
+    session_id: 'new',
+    event: 'SessionStart',
+    source: 'clear',
+    cwd: '/project',
+    ancestors: [12345],
+  });
+  expect(c.sid).toBe('claude:new');
+  expect(f.store.standby('claude:old')).toBeUndefined();
+  expect(f.store.standby('claude:new')).toMatchObject({
+    enabled: true,
+    wake_mode: 'claude',
+    health: 'starting',
+  });
+  expect(f.store.standby('claude:new')?.request).toBeUndefined();
+  expect(restored.inject).toContain('re-arm the host watcher');
+  expect(() => manager.watch('claude:new', 'after-clear', 'attach')).not.toThrow();
+});
+it('drops standby listeners that earlier versions left without a session', async () => {
+  f = fixture();
+  const kept = await f.session('claude', 'kept');
+  const listener = {
+    enabled: true,
+    wake_mode: 'claude',
+    health: 'healthy',
+    host_state: 'unknown',
+    checked_at: null,
+  } as const;
+  f.store.saveStandby({ sid: kept.sid!, ...listener });
+  f.store.saveStandby({ sid: 'claude:gone', ...listener });
+  const reopened = new Store(f.p.db);
+  try {
+    expect(reopened.standbys().map((s) => s.sid)).toEqual([kept.sid]);
+  } finally {
+    reopened.close();
+  }
 });

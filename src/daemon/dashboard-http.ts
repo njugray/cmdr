@@ -10,6 +10,7 @@ import { networkInterfaces } from 'node:os';
 import { Core } from './core.js';
 import { CmdrError, fail } from '../shared/protocol.js';
 import { VERSION } from '../shared/version.js';
+import { logInternal } from './logger.js';
 
 const token = () => randomBytes(32).toString('base64url');
 const same = (a: string, b: string) =>
@@ -37,6 +38,7 @@ export class DashboardServer {
     private core: Core,
     private touch: () => void,
     private assetRoot = new URL('./dashboard/', import.meta.url),
+    private log: (message: string) => void = () => {},
   ) {
     this.routes();
     this.server = createAdaptorServer({
@@ -256,6 +258,7 @@ export class DashboardServer {
     );
     app.notFound(() => fail('NOT_FOUND'));
     app.onError((error, c) => {
+      logInternal(this.log, `${c.req.method} ${c.req.path}`, error);
       const e =
         error instanceof CmdrError
           ? error

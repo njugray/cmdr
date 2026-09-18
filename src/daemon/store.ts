@@ -34,6 +34,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS dashboard_links(command_id TEXT PRIMARY KEY, task_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS dashboard_submissions(id TEXT PRIMARY KEY, payload TEXT NOT NULL);`);
     this.migrateWork();
+    // Standby rows must belong to a session. Earlier versions left enabled rows behind on a
+    // Claude /clear re-identification, which kept the daemon from ever exiting while idle,
+    // and housekeeping still drops expired sessions without their disabled rows.
+    this.db.exec('DELETE FROM standby WHERE sid NOT IN (SELECT sid FROM sessions)');
   }
   private migrateWork() {
     const legacy = this.unpack<Message>(
