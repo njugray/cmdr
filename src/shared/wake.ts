@@ -28,7 +28,7 @@ export function wakePrompt(id: string) {
 }
 
 export function hostStandby(mode: Standby['wake_mode']) {
-  return mode === 'claude' || mode === 'zcode';
+  return mode === 'claude' || mode === 'zcode' || mode === 'kimi';
 }
 
 export function armHint(s: Standby, home: string) {

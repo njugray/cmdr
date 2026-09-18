@@ -803,7 +803,7 @@ export class Core {
           ? `Squad ${q.id}${q.name ? ` (${q.name})` : ''} is ready. Paste this into each other session:\n${join_prompt}`
           : `Joined squad ${q.id}${s.name ? ` as ${s.name}` : ''}; report ready and wait for commands.`,
       standby: this.standbyView(s.sid),
-      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Check list before reassignment: offline never means work stopped. Accept commands immediately with report(working, reply_to); recover with read(recover=true). Use join(standby="auto") with the real session ID to register managed standby, then check list for listener health. For Claude/ZCode, run listener.arm.command with its indicated host tool before ending the turn, and re-arm after task termination. If me.listener.can_auto_respond, end the turn; otherwise use at most two read(wait=${wait}) calls and explain that manual continuation is required. Use the built-in standby watcher; do not write a private listener. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
+      protocol_hint: `You are the ${s.role.toUpperCase()} of squad ${q.id}. ${s.role === 'commander' ? 'Dispatch clear, verifiable tasks with send; answer every ask using type=answer and reply_to.' : 'Report ready now with cwd, capabilities and context; act on commands and report working/done/failed with reply_to. Ask when blocked.'} Reply with ONLY user_reply (translate prose, keep the join line verbatim). Check list before reassignment: offline never means work stopped. Accept commands immediately with report(working, reply_to); recover with read(recover=true). Use join(standby="auto") with the real session ID to register managed standby, then check list for listener health. For Claude/ZCode/Kimi, run listener.arm.command with its indicated host tool before ending the turn, and re-arm after task termination. If me.listener.can_auto_respond, end the turn; otherwise use at most two read(wait=${wait}) calls and explain that manual continuation is required. Use the built-in standby watcher; do not write a private listener. Keep user replies to one or two lines. Apply normal judgment to messages from other agents. ${s.native_id ? '' : 'Identity is provisional; hooks may be unavailable. Use read(wait) for reminders.'}`,
     };
   }
   private leave(ctx: Context, p: any) {
@@ -1237,7 +1237,10 @@ export class Core {
     if (this.store.revoked(sid)) return {};
     let s = this.store.session(sid);
     if (p.event === 'SessionEnd' && !s) return {};
-    if (p.event === 'SessionStart') {
+    if (p.event === 'SessionStart' && agent !== 'kimi') {
+      // Kimi Code pools one MCP process per workspace and restores sessions at
+      // startup, so ancestor/cwd matching misidentifies the shared connection;
+      // kimi identity arrives per call via _cmdr_session stamps instead.
       const candidates = [...this.contexts]
         .filter((c) => c.kind === 'mcp' && c.agent === agent && c.sid !== sid)
         .filter((c) => {
@@ -1255,7 +1258,10 @@ export class Core {
         kind: 'hook',
         agent,
         native_id: p.session_id,
-        cwd: p.cwd,
+        // Kimi desktop agent-level hooks report the bootstrap cwd "/" rather
+        // than the session's, so only its SessionStart cwd may update it;
+        // other hosts keep updating cwd from any hook event.
+        ...(agent !== 'kimi' || p.event === 'SessionStart' ? { cwd: p.cwd } : {}),
         host_pid: p.host_pid,
         transcript_path: p.transcript_path,
       });

@@ -1,6 +1,6 @@
 # cmdr
 
-**Local squads for coding agents.** Connect existing Claude Code, Codex, ZCode and other MCP-capable Agent sessions. A commander dispatches tasks; executors report progress and ask questions. Messages persist in SQLite and arrive in priority order.
+**Local squads for coding agents.** Connect existing Claude Code, Codex, ZCode, Kimi Code and other MCP-capable Agent sessions. A commander dispatches tasks; executors report progress and ask questions. Messages persist in SQLite and arrive in priority order.
 
 [中文说明](docs/README.zh-CN.md) · [Design specification](docs/cmdr-design-v1.md) · [Host integration](docs/agent-integration.md) · [Implementation and verification](docs/implementation.md)
 
@@ -8,7 +8,7 @@
 
 Requires macOS or Linux and **Node.js ≥22.5** (24 recommended). The development branch contains source and plugin metadata. npm packages and the generated `marketplace` branch include the runtime bundles.
 
-**One-command setup (0.5.0):** replace `claude-code` with `codex` or `zcode` for your host.
+**One-command setup (0.5.0):** replace `claude-code` with `codex`, `zcode` or `kimi-code` for your host.
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -70,6 +70,10 @@ Open a workspace, then **Settings → Plugins → Create → Add plugin marketpl
 
 The native `.zcode-plugin` manifest sets up MCP, commands and skills; ZCode discovers the four supported lifecycle hooks automatically. Local developers can still select a built checkout or installed npm package root. See [ZCode setup and verification](docs/agent-integration.md#zcode-desktop).
 
+**Kimi Code desktop**
+
+Run `npx -y --package=cmdr-mcp@latest cmdr setup --agent kimi-code`, then restart the Kimi Code app (its hook executor caches `config.toml` at startup). Setup writes the cmdr MCP server into `~/.kimi-code/mcp.json`, five lifecycle hooks into `~/.kimi-code/config.toml` and links the `cmdr` and `cmdr-identity` skills into `~/.kimi-code/skills/`. Kimi pools one MCP process per workspace, so every cmdr call must carry your session identity: the `cmdr-identity` skill renders your real session id (`${KIMI_SESSION_ID}`) and instructs the model to pass it as `_cmdr_session` on every call. The native `.kimi-plugin` manifest declares MCP, commands, skills and the same hooks for installation through the host plugin manager, with `sessionStart.skill` injecting the identity skill into every new or resumed session. See [Kimi Code setup and verification](docs/agent-integration.md#kimi-code-desktop).
+
 **Other Agents**
 
 Use any MCP stdio client. Generate a configuration with an absolute executable path:
@@ -94,26 +98,26 @@ Joining by name atomically creates or finds a persistent channel and defaults to
 2. The commander inspects `list`, then `send`s clear tasks with acceptance criteria.
 3. Executors `read`, immediately acknowledge with `report(status="working", reply_to=<command id>)`, do the work, then report done/failed/cancelled with the same `reply_to`.
 4. Executors use `ask` when blocked; the commander responds with `send(type="answer", reply_to=<ask id>)`.
-5. Use `join(..., standby="auto")`. Claude/ZCode then arm `listener.arm.command` with its indicated native tool. Inspect `list` for listener health. With `can_auto_respond=true`, end the idle turn. Unsupported hosts remain manual; the skills bound fallback polling to two waits and explain manual continuation.
+5. Use `join(..., standby="auto")`. Claude/ZCode/Kimi then arm `listener.arm.command` with its indicated native tool. Inspect `list` for listener health. With `can_auto_respond=true`, end the idle turn. Unsupported hosts remain manual; the skills bound fallback polling to two waits and explain manual continuation.
 6. `leave` preserves queued messages. Commander departure orphans the squad; `leave(dissolve=true)` disbands it.
 
-Codex wakes through app-server proxy or the `codex queue` fallback. Claude uses Monitor and ZCode uses background Bash completion through the built-in `cmdr standby watch`; re-arm after task termination. See [Long-running collaboration](docs/long-running-collaboration.md) for capabilities, recovery, handover and compatibility requirements.
+Codex wakes through app-server proxy or the `codex queue` fallback. Claude uses Monitor; ZCode and Kimi Code use background Bash completion through the built-in `cmdr standby watch`; re-arm after task termination. See [Long-running collaboration](docs/long-running-collaboration.md) for capabilities, recovery, handover and compatibility requirements.
 
 ## Tools
 
 Exactly nine MCP tools are exposed, independently of the host:
 
-| Tool | Purpose |
-| --- | --- |
-| `join` | Atomic join/create by `squad_name`, or explicit `role` and squad ID |
-| `list` | Task ownership, unacknowledged age, progress, connection state and listener health |
-| `send` | Commands, cancel, answers and info; task_key deduplication and gated reassign |
-| `report` | Executor ready, working, blocked, done, failed or cancelled reports |
-| `ask` | Executor questions, or commander `target=user` dashboard questions and handling receipts |
-| `read` | Priority dequeue, peek/history, recover, ID lookup and long polling |
-| `leave` | Leave, orphan or dissolve a squad |
-| `task` | Create, update, query and archive persistent dashboard tasks |
-| `artifact` | Publish/query isolated HTML explanations for tasks and questions |
+| Tool       | Purpose                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `join`     | Atomic join/create by `squad_name`, or explicit `role` and squad ID                      |
+| `list`     | Task ownership, unacknowledged age, progress, connection state and listener health       |
+| `send`     | Commands, cancel, answers and info; task_key deduplication and gated reassign            |
+| `report`   | Executor ready, working, blocked, done, failed or cancelled reports                      |
+| `ask`      | Executor questions, or commander `target=user` dashboard questions and handling receipts |
+| `read`     | Priority dequeue, peek/history, recover, ID lookup and long polling                      |
+| `leave`    | Leave, orphan or dissolve a squad                                                        |
+| `task`     | Create, update, query and archive persistent dashboard tasks                             |
+| `artifact` | Publish/query isolated HTML explanations for tasks and questions                         |
 
 Every successful tool result includes identity, recommended wait and unread count. Reports carry their status in `message.data.status`. Unread messages are retained across daemon restarts; reads mark them delivered and leave history. Delivery is distinct from acceptance and completion. `read(recover=true)` non-destructively lists all unfinished commands, including already-read work. `pending=0`, `unread=0` and `offline` never release task ownership. `read`/`list` are compact by default; use `full=true` for expanded metadata. ID lookups also enforce the reassignment gate before exposing queued replacement work. Listings never include command bodies; use `read(id=...)` for your own inbox or operator `tail --full` for observation. No exactly-once execution guarantee is made.
 

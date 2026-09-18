@@ -4,6 +4,7 @@ export const cmdrTool =
 export function detectAgent(env = process.env, hook?: Record<string, unknown>): Agent {
   if (env.CMDR_AGENT && /^[a-z][a-z0-9_-]{0,63}$/.test(env.CMDR_AGENT)) return env.CMDR_AGENT;
   if (env.ZCODE_PLUGIN_ROOT || env.ZCODE_PLUGIN_ID) return 'zcode';
+  if (env.KIMI_PLUGIN_ROOT) return 'kimi';
   if (env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_CODE_ENTRYPOINT) return 'claude';
   if (hook?.transcript_path && String(hook.transcript_path).includes('/.claude/')) return 'claude';
   if (env.CODEX_HOME || env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || hook?.turn_id)

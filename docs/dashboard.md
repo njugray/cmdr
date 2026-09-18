@@ -96,6 +96,6 @@ task(action="update", id="<任务 ID>", artifact_ids=["<展示块 ID>"])
 
 每个标签页一条 SSE，所有小队共享。事件只提示数据变化，页面再查询快照；断线恢复同样重新查询。表单草稿保存在当前页面内存中，按小队和问题区分，切换小队不丢失；浏览器整页重载不保证恢复。
 
-监听健康、宿主接受唤醒、任务接单和问题处理各自显示。Codex 复用 proxy/queue；Claude/ZCode 完整执行 `listener.arm.command`，保留其中的 `CMDR_HOME`，使用宿主原生通知。安装自检与自动化测试不代替真实宿主的信任提示和模型唤醒验证。
+监听健康、宿主接受唤醒、任务接单和问题处理各自显示。Codex 复用 proxy/queue；Claude/ZCode/Kimi 完整执行 `listener.arm.command`，保留其中的 `CMDR_HOME`，使用宿主原生通知。安装自检与自动化测试不代替真实宿主的信任提示和模型唤醒验证。
 
 设计背景见[方案文档](dashboard-plan.md)。

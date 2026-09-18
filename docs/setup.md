@@ -6,7 +6,7 @@ Available from cmdr-mcp 0.4.0. Requires macOS/Linux and Node.js >=22.5 (24 recom
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 ```
 
-Choose `claude-code`, `codex` or `zcode`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the nine tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
+Choose `claude-code`, `codex`, `zcode` or `kimi-code`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the nine tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
 
 To install only the self-contained skill and its role/setup references:
 
@@ -23,6 +23,7 @@ Add `-g` for global scope or `--agent <supported-agent>` to select a host. This 
 | Claude Code (`claude-code`, alias `claude`) | `~/.claude.json` | `~/.claude/settings.json` | `~/.claude/skills/cmdr` |
 | Codex | `$CODEX_HOME/config.toml`, default `~/.codex/config.toml` | `$CODEX_HOME/hooks.json` | `$CODEX_HOME/skills/cmdr` |
 | ZCode | `~/.zcode/cli/config.json`, `mcp.servers` | Same file, `hooks.events` | `~/.zcode/skills/cmdr` |
+| Kimi Code (`kimi-code`, alias `kimi`) | `$KIMI_CODE_HOME/mcp.json`, default `~/.kimi-code/mcp.json` | Same directory, `config.toml` `[[hooks]]` | `$KIMI_CODE_HOME/skills/cmdr` |
 
 | Option | Purpose |
 | --- | --- |
@@ -30,7 +31,7 @@ Add `-g` for global scope or `--agent <supported-agent>` to select a host. This 
 | `--json` | Return paths, changes, warnings and backup location as JSON |
 | `--config-dir PATH` | Select a custom host **user** profile directory; launch the host with that same profile |
 
-`CLAUDE_CONFIG_DIR` is respected; its MCP file is `<CLAUDE_CONFIG_DIR>/.claude.json`. ZCode loads user hooks, not workspace hooks. `CMDR_HOME` selects runtime/state storage (default `~/.cmdr`): build directories live in `runtimes/`, stable profile-specific launchers in `bin/`. They survive npx cache removal and bind the host/state directory, never a fixed session ID. See [host integration](agent-integration.md) for identity and lifecycle contracts.
+`CLAUDE_CONFIG_DIR` is respected; its MCP file is `<CLAUDE_CONFIG_DIR>/.claude.json`. `KIMI_CODE_HOME` relocates the whole Kimi Code data directory, including `mcp.json`, `config.toml` and `skills/`; without it the default `~/.kimi-code` applies. ZCode loads user hooks, not workspace hooks. `CMDR_HOME` selects runtime/state storage (default `~/.cmdr`): build directories live in `runtimes/`, stable profile-specific launchers in `bin/`. They survive npx cache removal and bind the host/state directory, never a fixed session ID. See [host integration](agent-integration.md) for identity and lifecycle contracts.
 
 ## Upgrade and recovery
 
@@ -42,4 +43,4 @@ Existing copies/symlinks of this repository's skill are backed up and replaced w
 
 Backups live in `<CMDR_HOME>/setup-backups/<run>/`. `restore.json` maps each changed path to its backup (`null` marks a newly created entry). Failed writes are rolled back; concurrent edits are reported for manual recovery. After a crash, inspect that record before retrying. Remove a stale `setup.lock` only after confirming its recorded process has stopped.
 
-For diagnostics, run `<printed-cli> doctor --deep`. Move a damaged runtime directory aside and rerun setup from an intact package. Native plugins require their own cache refresh. For [automatic standby](long-running-collaboration.md#automatic-standby), Claude/ZCode arm `listener.arm.command` with the indicated native host tool; Codex uses daemon-managed proxy/queue delivery. GUI trust, actual hook execution and automatic wake must be verified in the host; setup's isolated MCP check does not establish those capabilities.
+For diagnostics, run `<printed-cli> doctor --deep`. Move a damaged runtime directory aside and rerun setup from an intact package. Native plugins require their own cache refresh. For [automatic standby](long-running-collaboration.md#automatic-standby), Claude/ZCode/Kimi Code arm `listener.arm.command` with the indicated native host tool; Codex uses daemon-managed proxy/queue delivery. GUI trust, actual hook execution and automatic wake must be verified in the host; setup's isolated MCP check does not establish those capabilities.

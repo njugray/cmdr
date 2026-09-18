@@ -1,6 +1,6 @@
 # cmdr
 
-让本机已经打开的 **Claude Code、Codex、ZCode 和其他支持 MCP 的 Agent** 组成小队：指挥官发任务，执行方汇报、提问，消息按优先级持久化到 SQLite。
+让本机已经打开的 **Claude Code、Codex、ZCode、Kimi Code 和其他支持 MCP 的 Agent** 组成小队：指挥官发任务，执行方汇报、提问，消息按优先级持久化到 SQLite。
 
 [English](../README.md) · [设计方案](cmdr-design-v1.md) · [接入指南](agent-integration.md) · [实现与验证记录](implementation.md)
 
@@ -8,7 +8,7 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
-**一条命令完整安装（0.5.0）**，将 `claude-code` 换成实际使用的 `codex` 或 `zcode`：
+**一条命令完整安装（0.5.0）**，将 `claude-code` 换成实际使用的 `codex`、`zcode` 或 `kimi-code`：
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -68,6 +68,8 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 
 原生 `.zcode-plugin` 清单负责 MCP、命令和技能，ZCode 自动发现 4 类受支持的 hooks。本地开发仍可选择已构建的仓库或已安装 npm 包根目录。
 
+Kimi Code 桌面端：运行 `npx -y --package=cmdr-mcp@latest cmdr setup --agent kimi-code`，然后重启 Kimi Code 应用（其 hook 执行器启动时缓存 `config.toml`）。setup 会把 cmdr MCP server 写入 `~/.kimi-code/mcp.json`、把 5 个生命周期 hooks 写入 `~/.kimi-code/config.toml`，并把 `cmdr` 与 `cmdr-identity` 技能链接到 `~/.kimi-code/skills/`。Kimi 按工作区共享一个 MCP 进程，所以每次调用 cmdr 都必须携带会话身份：`cmdr-identity` 技能会把你的真实会话 ID（`${KIMI_SESSION_ID}`）渲染出来，并要求模型在每次调用时以 `_cmdr_session` 传入。原生 `.kimi-plugin` 清单通过宿主插件管理器声明 MCP、命令、技能和同样的 hooks，并用 `sessionStart.skill` 在每个新建或恢复的会话自动注入身份技能。详见[接入指南的 Kimi Code 章节](agent-integration.md)。旧的手动配置如果在 `mcp.json` 里固定过 `CMDR_SESSION_ID`，请移除后重跑 setup。
+
 其他 Agent：
 
 ```sh
@@ -88,7 +90,7 @@ ZCode 桌面端：打开工作区，在 **设置 → 插件 → 创建 → 添�
 
 执行方加入后 `report(ready)` 报到，说明目录、能力和当前上下文。指挥官通过 `list` 看成员，用 `send` 下发可验证任务。执行方 `read` 读取任务后立即用 `report(working, reply_to=<command id>)` 接单，再带相同 `reply_to` 汇报 done/failed/cancelled，遇到阻塞用 `ask` 提问；指挥官通过 `send(type="answer", reply_to=<ask id>)` 回答。
 
-加入时设置 `standby="auto"`，再按 `listener.arm` 和 `list` 的健康状态操作。Codex 由 daemon 自动探测 proxy，并在不可用时尝试 `codex queue`；Claude 使用原生 Monitor，ZCode 使用 `run_in_background=true` 的后台 Bash，两者都运行内置 `cmdr standby watch`。宿主 watcher 真正挂载后才显示 `can_auto_respond=true`，此时可结束空闲回合；任务完成、失败、到期或宿主重启后重新挂载。只有不支持原生通知或挂载失败时，才退回两次有限轮询并说明需人工续接。完整操作与边界见[长期协作](long-running-collaboration.md)。
+加入时设置 `standby="auto"`，再按 `listener.arm` 和 `list` 的健康状态操作。Codex 由 daemon 自动探测 proxy，并在不可用时尝试 `codex queue`；Claude 使用原生 Monitor，ZCode 和 Kimi Code 使用 `run_in_background=true` 的后台 Bash，都运行内置 `cmdr standby watch`。宿主 watcher 真正挂载后才显示 `can_auto_respond=true`，此时可结束空闲回合；任务完成、失败、到期或宿主重启后重新挂载。只有不支持原生通知或挂载失败时，才退回两次有限轮询并说明需人工续接。完整操作与边界见[长期协作](long-running-collaboration.md)。
 
 ## 工具和运维
 

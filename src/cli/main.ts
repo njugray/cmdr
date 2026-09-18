@@ -150,12 +150,40 @@ if (process.argv[2] === 'setup') {
       checks.zcode_user_hooks =
         'No user hook config; installed plugin hooks follow plugin enablement.';
     }
+    const kimiRoot = '/Applications/Kimi Code.app/Contents';
+    if (existsSync(join(kimiRoot, 'Info.plist'))) {
+      try {
+        checks.kimi = {
+          app_version: execFileSync(
+            '/usr/libexec/PlistBuddy',
+            ['-c', 'Print :CFBundleShortVersionString', join(kimiRoot, 'Info.plist')],
+            { encoding: 'utf8', timeout: 1000 },
+          ).trim(),
+          config_dir: process.env.KIMI_CODE_HOME || join(homedir(), '.kimi-code'),
+        };
+      } catch {
+        checks.kimi = 'Installed';
+      }
+    } else
+      checks.kimi =
+        'Desktop app not found in /Applications; generic MCP configuration is available.';
+    try {
+      const kconfig = readFileSync(
+        join(process.env.KIMI_CODE_HOME || join(homedir(), '.kimi-code'), 'config.toml'),
+        'utf8',
+      );
+      checks.kimi_hooks = /cmdr-hook/.test(kconfig)
+        ? 'cmdr hooks present in config.toml'
+        : 'No cmdr hooks in config.toml; run cmdr setup --agent kimi-code.';
+    } catch {
+      checks.kimi_hooks = 'Kimi Code configuration unavailable';
+    }
     print(checks);
   }
   try {
     if (v.help)
       process.stdout.write(
-        'cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
+        'cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode|kimi-code [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|kimi|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n',
       );
     else if (cmd === 'dashboard') {
       const result = await call('admin.dashboard', {}, true);
@@ -180,9 +208,10 @@ if (process.argv[2] === 'setup') {
         env: {
           CMDR_AGENT: agent,
           ...(v.session ? { CMDR_SESSION_ID: v.session } : {}),
-          ...(agent === 'zcode' ? { CMDR_TOOL_TIMEOUT_SEC: '600' } : {}),
+          ...(agent === 'zcode' || agent === 'kimi' ? { CMDR_TOOL_TIMEOUT_SEC: '600' } : {}),
         },
         ...(agent === 'zcode' ? { timeoutMs: 600000 } : {}),
+        ...(agent === 'kimi' ? { toolTimeoutMs: 600000 } : {}),
       };
       print(
         agent === 'zcode'

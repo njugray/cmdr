@@ -1,7 +1,15 @@
 import { afterEach, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { mkdtempSync, rmSync, statSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  statSync,
+  readFileSync,
+  existsSync,
+  writeFileSync,
+  cpSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -9,6 +17,7 @@ import { build } from 'esbuild';
 import { promisify } from 'node:util';
 import { connect } from 'node:net';
 import { quickCall } from '../src/shared/client.js';
+import { diagnosticStatus } from '../src/shared/diagnostics.js';
 import { paths } from '../src/shared/paths.js';
 import { Rpc } from '../src/shared/rpc.js';
 import { PROTOCOL, VERSION } from '../src/shared/version.js';
@@ -167,6 +176,92 @@ it('runs hooks fail-open and stamps the installed ZCode tool namespace', async (
       { timeout: 3000 },
     )
     .toContain('commander');
+}, 10000);
+it('enforces per-call session stamps and delivers Kimi reminders natively', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-kimi-hook-'));
+  const hook = resolve('plugins/cmdr/bin/cmdr-hook');
+  const invoke = (event: string, input: any) =>
+    new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+      execFile(hook, [event], { env: env({ CMDR_AGENT: 'kimi' }) }, (error, stdout, stderr) =>
+        error && (error as any).code !== 2
+          ? reject(error)
+          : resolve({ code: (error as any)?.code ?? 0, stdout, stderr }),
+      ).stdin!.end(JSON.stringify(input));
+    });
+  // Without a daemon everything fails open and silent.
+  expect((await invoke('Stop', { session_id: 'e' })).stdout).toBe('');
+  const c = await host('kimi', 'c');
+  await tool(c, 'join', { role: 'commander', squad_name: 'kimi-hooks' });
+  const e = await host('kimi', 'e');
+  await tool(e, 'join', { squad_name: 'kimi-hooks', _cmdr_session: 'e' });
+  // Non-cmdr tools are outside the host-side matcher and stay silent (checked
+  // with an empty inbox so this direct invocation cannot consume reminders).
+  expect(
+    await invoke('PreToolUse', { session_id: 'e', tool_name: 'Bash', tool_input: {} }),
+  ).toMatchObject({ code: 0, stdout: '', stderr: '' });
+  await tool(c, 'send', { to: 'kimi:e', message: 'kimi task body' });
+  // PreToolUse verifies the per-call stamp: silent on match, a native block
+  // naming the expected id when it is missing or mismatched.
+  const pre = (tool_input: any, session_id = 'e') =>
+    invoke('PreToolUse', { session_id, tool_name: 'mcp__cmdr__read', tool_input });
+  expect(await pre({ peek: true })).toMatchObject({ code: 2, stdout: '' });
+  expect((await pre({ peek: true })).stderr).toContain('_cmdr_session="e"');
+  expect((await pre({ peek: true, _cmdr_session: 'other' })).stderr).toContain('_cmdr_session="e"');
+  expect(await pre({ peek: true, _cmdr_session: 'e' })).toEqual({
+    code: 0,
+    stdout: '',
+    stderr: '',
+  });
+  // UserPromptSubmit reminders reach the model context through stdout.
+  const prompt = await invoke('UserPromptSubmit', {
+    session_id: 'e',
+    prompt: [{ type: 'text', text: 'hello' }],
+  });
+  expect(prompt.code).toBe(0);
+  expect(prompt.stdout).toContain('cmdr read');
+  expect(prompt.stdout).not.toContain('kimi task body');
+  // Unfinished work turns a Stop hook into a native block: exit code 2 with
+  // the reason on stderr, nothing on stdout, message bodies never leak.
+  let stop: { code: number; stdout: string; stderr: string } | undefined;
+  await expect
+    .poll(async () => (stop = await invoke('Stop', { session_id: 'e', stop_hook_active: false })), {
+      timeout: 5000,
+    })
+    .toMatchObject({ code: 2, stdout: '' });
+  expect(stop!.stderr.length).toBeGreaterThan(0);
+  expect(stop!.stderr).not.toContain('kimi task body');
+  // SessionStart stdout is dropped by the host, so the hook stays silent there.
+  expect((await invoke('SessionStart', { session_id: 'e', source: 'startup' })).stdout).toBe('');
+}, 15000);
+it('routes the pooled Kimi MCP process by per-call stamps', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-kimi-pool-'));
+  const pooled = await host('kimi'); // no CMDR_SESSION_ID: workspace-pooled endpoint
+  const rejected = await pooled.callTool({ name: 'list', arguments: {} });
+  expect(rejected.isError).toBeTruthy();
+  expect((rejected.content as any[])[0].text).toContain('SESSION_STAMP_REQUIRED');
+  expect((rejected.content as any[])[0].text).toContain('_cmdr_session');
+  const a = await tool(pooled, 'join', {
+    role: 'commander',
+    squad_name: 'pooled',
+    _cmdr_session: 'a',
+  });
+  const b = await tool(pooled, 'join', { squad_name: 'pooled', _cmdr_session: 'b' });
+  expect(a.me.sid).toBe('kimi:a');
+  expect(b.me.sid).toBe('kimi:b');
+  const listing = await tool(pooled, 'list', { _cmdr_session: 'a' });
+  expect(listing.sessions.filter((s: any) => ['kimi:a', 'kimi:b'].includes(s.sid))).toHaveLength(2);
+}, 15000);
+it('keeps the Kimi Code hook fail-open on a corrupted runtime without leaking the stack', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-kimi-failopen-'));
+  const root = join(home, 'plugin');
+  cpSync(resolve('plugins/cmdr'), root, { recursive: true });
+  writeFileSync(join(root, 'dist/hook.mjs'), 'this is invalid JavaScript');
+  const result = await run(join(root, 'bin/cmdr-hook'), ['Stop'], {
+    env: { ...env(), CMDR_AGENT: 'kimi' },
+  });
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe('');
+  expect(diagnosticStatus(home)['bootstrap-runtime'].code).toBe('bootstrap-runtime');
 }, 10000);
 it('requires hello and rejects incompatible protocols and stale cached client semantics', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-rpc-'));

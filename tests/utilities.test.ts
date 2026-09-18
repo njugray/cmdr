@@ -23,6 +23,7 @@ it('detects hosts without treating generic clients as Codex', () => {
   expect(detectAgent({ ZCODE_PLUGIN_ROOT: '/plugin', CLAUDE_CODE_SESSION_ID: 'z' })).toBe('zcode');
   expect(detectAgent({ CLAUDE_CODE_SESSION_ID: 'c' })).toBe('claude');
   expect(detectAgent({ CODEX_HOME: '/codex' })).toBe('codex');
+  expect(detectAgent({ KIMI_PLUGIN_ROOT: '/plugin' })).toBe('kimi');
   for (const name of [
     'mcp__cmdr__join',
     'mcp__plugin_cmdr_cmdr__read',

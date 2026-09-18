@@ -34,12 +34,14 @@ const required = [
   '.claude-plugin/plugin.json',
   '.codex-plugin/plugin.json',
   '.zcode-plugin/plugin.json',
+  '.kimi-plugin/plugin.json',
 ];
 for (const path of new Set([...required, ...Object.keys(manifest?.files || {})])) {
   if (
     !required.includes(path) &&
     !path.startsWith('skills/') &&
     !path.startsWith('commands/') &&
+    !path.startsWith('kimi-identity/') &&
     path !== 'THIRD_PARTY_NOTICES.txt'
   ) {
     errors.push(`Unexpected manifest path: ${path}`);
@@ -62,7 +64,7 @@ for (const path of new Set([...required, ...Object.keys(manifest?.files || {})])
   if (!files[path]) errors.push(`Missing, modified or linked asset: ${path}`);
 }
 const versions = {};
-for (const host of ['claude', 'codex', 'zcode']) {
+for (const host of ['claude', 'codex', 'zcode', 'kimi']) {
   try {
     versions[host] = read(`.${host}-plugin/plugin.json`).version;
     if (versions[host] !== manifest?.version) errors.push(`${host} version differs from build`);

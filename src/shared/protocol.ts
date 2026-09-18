@@ -118,7 +118,7 @@ export interface Standby {
   generation?: number;
   sid: string;
   enabled: boolean;
-  wake_mode: 'codex' | 'claude' | 'zcode' | 'manual';
+  wake_mode: 'codex' | 'claude' | 'zcode' | 'kimi' | 'manual';
   transport?: 'proxy' | 'queue';
   codex_transport?: 'auto' | 'proxy' | 'queue';
   lease?: { token: string; expires_at: number };
