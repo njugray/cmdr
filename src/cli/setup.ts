@@ -104,18 +104,12 @@ export async function runSetup(argv: string[], sourceRoot: string) {
     hook = join(bin, `cmdr-hook-${host}-${profile}`);
   const changes: SetupChange[] = [];
   const warnings: string[] = [];
-  if (host === 'kimi') {
-    // The host plugin manager copies enabled plugins to plugins/managed/<id>;
-    // standalone setup must not add a second MCP server and hook set.
-    const managed = join(
-      process.env.KIMI_CODE_HOME || join(homedir(), '.kimi-code'),
-      'plugins/managed/cmdr',
+  // The host plugin manager copies enabled plugins to plugins/managed/<id>;
+  // standalone setup must not add a second MCP server and hook set.
+  if (host === 'kimi' && existsSync(join(hostRoot, 'plugins/managed/cmdr')))
+    throw new Error(
+      'The cmdr plugin is already enabled. Use its installation, or remove it before running standalone setup to avoid duplicate tools and hooks.',
     );
-    if (existsSync(managed))
-      throw new Error(
-        'The cmdr plugin is already enabled. Use its installation, or remove it before running standalone setup to avoid duplicate tools and hooks.',
-      );
-  }
   const add = (change: SetupChange | undefined) => {
     if (change) changes.push(change);
   };
@@ -200,7 +194,10 @@ export async function runSetup(argv: string[], sourceRoot: string) {
     dry_run: !!values['dry-run'],
     changed: changes.map((change) => change.path),
     warnings,
-    restart: 'Start a new host session and review any hook trust prompts.',
+    restart:
+      host === 'kimi'
+        ? 'Restart the Kimi Code app: it loads config.toml hooks only at startup.'
+        : 'Start a new host session and review any hook trust prompts.',
   };
   const output = (extra: Record<string, unknown>) => {
     if (values.json) console.log(JSON.stringify({ ...result, ...extra }, null, 2));

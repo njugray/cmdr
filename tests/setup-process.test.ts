@@ -30,7 +30,7 @@ function fixture() {
   roots.push(root);
   const state = join(root, 'state'),
     host = join(root, 'host');
-  const env = { ...process.env, CMDR_HOME: state };
+  const env: NodeJS.ProcessEnv = { ...process.env, CMDR_HOME: state };
   const cli = (args: string[], source = plugin) =>
     run(
       process.execPath,
@@ -149,6 +149,8 @@ it.each(['claude-code', 'codex', 'zcode', 'kimi-code'])(
       );
       expect(identity).toContain('${KIMI_SESSION_ID}');
       expect(identity).toContain('_cmdr_session');
+      // Kimi caches config.toml hooks at app startup; a new session is not enough.
+      expect(installed.restart).toContain('Restart the Kimi Code app');
     } else {
       const hooks = agent === 'zcode' ? hookConfig.hooks.events : hookConfig.hooks;
       expect(hooks.Stop[0]).toEqual(otherHook);
@@ -392,6 +394,26 @@ it('leaves host config untouched on malformed input, an incomplete source or an 
   });
   expect(readdirSync(f.host)).toEqual(['settings.json']);
 });
+
+it('checks for an enabled Kimi plugin in the selected profile only', async () => {
+  const f = fixture();
+  const withPlugin = join(f.root, 'plugin-profile'),
+    clean = join(f.root, 'clean-profile');
+  mkdirSync(join(withPlugin, 'plugins/managed/cmdr'), { recursive: true });
+  f.env.KIMI_CODE_HOME = clean;
+  await expect(
+    f.cli(['setup', '--agent', 'kimi-code', '--config-dir', withPlugin]),
+  ).rejects.toMatchObject({ stderr: expect.stringContaining('already enabled') });
+  expect(readdirSync(withPlugin)).toEqual(['plugins']);
+  f.env.KIMI_CODE_HOME = withPlugin;
+  await expect(f.cli(['setup', '--agent', 'kimi-code'])).rejects.toMatchObject({
+    stderr: expect.stringContaining('already enabled'),
+  });
+  // A plugin in the default profile does not block a clean selected profile.
+  const args = ['setup', '--agent', 'kimi-code', '--config-dir', clean, '--dry-run', '--json'];
+  expect(JSON.parse((await f.cli(args)).stdout).config).toBe(join(clean, 'mcp.json'));
+  expect(existsSync(f.state)).toBe(false);
+}, 20000);
 
 it('keeps launchers for separate Codex profiles independent when they share daemon state', async () => {
   const f = fixture();

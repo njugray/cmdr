@@ -6,7 +6,7 @@ Available from cmdr-mcp 0.4.0. Requires macOS/Linux and Node.js >=22.5 (24 recom
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
 ```
 
-Choose `claude-code`, `codex`, `zcode` or `kimi-code`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the nine tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
+Choose `claude-code`, `codex`, `zcode` or `kimi-code`. Setup installs a persistent runtime, the `cmdr` skill, MCP and user hooks, then checks the nine tools in temporary state. Use the printed CLI path (normally `~/.cmdr/bin/cmdr`), open a new host session and complete any trust prompts. Kimi Code loads `config.toml` hooks only at startup, so restart the app instead. Existing hook opt-outs are preserved. Other MCP hosts use `cmdr config --agent <host-id>`.
 
 To install only the self-contained skill and its role/setup references:
 
