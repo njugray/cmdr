@@ -8,7 +8,7 @@
 
 支持 macOS / Linux，需要 Node.js ≥22.5（推荐 24）。开发分支保存源码和插件元数据；npm 发布包及自动生成的 `marketplace` 分支包含完整运行时。
 
-**一条命令完整安装（0.5.0）**，将 `claude-code` 换成实际使用的 `codex`、`zcode` 或 `kimi-code`：
+**一条命令完整安装（0.6.0）**，将 `claude-code` 换成实际使用的 `codex`、`zcode` 或 `kimi-code`：
 
 ```sh
 npx -y --package=cmdr-mcp@latest cmdr setup --agent claude-code
@@ -42,7 +42,7 @@ npm run build
 
 ```sh
 npm pack
-npm install --global ./cmdr-mcp-0.5.0.tgz
+npm install --global ./cmdr-mcp-0.6.0.tgz
 cmdr --help
 ```
 

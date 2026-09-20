@@ -1,6 +1,6 @@
 # Implementation and verification
 
-This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.5.0**, internal protocol **1**.
+This document records the implementation and its verification scope. The design's historical v0.1.x trial reports described a prior prototype; they are not test evidence for this implementation. This release is versioned from `package.json` as **0.6.0**, internal protocol **1**.
 
 ## Delivered behavior
 
