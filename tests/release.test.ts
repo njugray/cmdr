@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   rmSync,
   cpSync,
+  chmodSync,
   readFileSync,
   writeFileSync,
   mkdirSync,
@@ -108,6 +109,39 @@ it('completes member CLI workflow and shares native identity with stamped MCP ca
   await session('c', 'leave', { dissolve: true });
   expect(q.squad.id).toBeTruthy();
   expect(sent).toBeTruthy();
+}, 15000);
+it('starts the ZCode MCP through sh when plugin extraction strips executable bits', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-cache-mode-'));
+  const root = join(home, 'plugin');
+  cpSync(resolve('plugins/cmdr'), root, { recursive: true });
+  for (const name of ['cmdr', 'cmdr-mcp', 'cmdr-daemon', 'cmdr-hook', 'cmdr-node']) {
+    chmodSync(join(root, 'bin', name), 0o644);
+  }
+
+  const manifest = JSON.parse(readFileSync(join(root, '.zcode-plugin/plugin.json'), 'utf8'));
+  expect(manifest.mcpServers.cmdr).toMatchObject({
+    command: '/bin/sh',
+    args: ['${ZCODE_PLUGIN_ROOT}/bin/cmdr-mcp'],
+  });
+  const hookConfig = JSON.parse(readFileSync(join(root, 'hooks/hooks.json'), 'utf8'));
+  const hookCommands = Object.values(hookConfig.hooks).flatMap((entries: any) =>
+    entries.flatMap((entry: any) => entry.hooks.map((hook: any) => hook.command)),
+  );
+  expect(hookCommands).toHaveLength(5);
+  expect(hookCommands.every((command: string) => command.startsWith('/bin/sh '))).toBe(true);
+
+  const client = new Client({ name: 'zcode-cache-mode-test', version: '1' });
+  clients.push(client);
+  await client.connect(
+    new StdioClientTransport({
+      command: manifest.mcpServers.cmdr.command,
+      args: [join(root, 'bin/cmdr-mcp')],
+      cwd: root,
+      env: { ...env(), CMDR_AGENT: 'zcode' },
+      stderr: 'pipe',
+    }),
+  );
+  expect((await client.listTools()).tools).toHaveLength(9);
 }, 15000);
 it('CLI timeout and SIGTERM leave future messages unread and do not retry asks', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-cancel-'));

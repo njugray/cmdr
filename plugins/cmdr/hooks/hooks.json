@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" SessionStart",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" SessionStart",
             "timeout": 5
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" UserPromptSubmit",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" PreToolUse",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" PreToolUse",
             "timeout": 5
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" Stop",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" Stop",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" SessionEnd",
+            "command": "/bin/sh \"${CLAUDE_PLUGIN_ROOT}/bin/cmdr-hook\" SessionEnd",
             "timeout": 1
           }
         ]

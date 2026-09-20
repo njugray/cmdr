@@ -9,4 +9,4 @@ while [ -L "$CMDR_SCRIPT" ]; do
 done
 CMDR_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$CMDR_SCRIPT")" && pwd)
 export CMDR_BIN_DIR
-exec "$CMDR_BIN_DIR/cmdr-node" hook "$@"
+exec /bin/sh "$CMDR_BIN_DIR/cmdr-node" hook "$@"
