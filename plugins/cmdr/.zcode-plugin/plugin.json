@@ -12,7 +12,10 @@
   "mcpServers": {
     "cmdr": {
       "type": "stdio",
-      "command": "${ZCODE_PLUGIN_ROOT}/bin/cmdr-mcp",
+      "command": "/bin/sh",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/bin/cmdr-mcp"
+      ],
       "cwd": "${CLAUDE_PROJECT_DIR}",
       "env": {
         "CMDR_AGENT": "zcode",

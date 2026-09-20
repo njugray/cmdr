@@ -3,10 +3,12 @@ import {
   mkdtempSync,
   rmSync,
   cpSync,
+  chmodSync,
   readFileSync,
   writeFileSync,
   mkdirSync,
   existsSync,
+  realpathSync,
   statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -109,6 +111,65 @@ it('completes member CLI workflow and shares native identity with stamped MCP ca
   expect(q.squad.id).toBeTruthy();
   expect(sent).toBeTruthy();
 }, 15000);
+it('starts the ZCode MCP through sh when plugin extraction strips executable bits', async () => {
+  home = mkdtempSync(join(tmpdir(), 'cmdr-cache-mode-'));
+  const root = join(home, 'plugin');
+  cpSync(resolve('plugins/cmdr'), root, { recursive: true });
+  for (const name of ['cmdr', 'cmdr-mcp', 'cmdr-daemon', 'cmdr-hook', 'cmdr-node']) {
+    chmodSync(join(root, 'bin', name), 0o644);
+  }
+
+  const manifest = JSON.parse(readFileSync(join(root, '.zcode-plugin/plugin.json'), 'utf8'));
+  expect(manifest.mcpServers.cmdr).toMatchObject({
+    command: '/bin/sh',
+    args: ['${ZCODE_PLUGIN_ROOT}/bin/cmdr-mcp'],
+  });
+  const hookConfig = JSON.parse(readFileSync(join(root, 'hooks/hooks.json'), 'utf8'));
+  const hookCommands = Object.values(hookConfig.hooks).flatMap((entries: any) =>
+    entries.flatMap((entry: any) => entry.hooks.map((hook: any) => hook.command)),
+  );
+  expect(hookCommands).toHaveLength(5);
+  expect(hookCommands.every((command: string) => command.startsWith('/bin/sh '))).toBe(true);
+
+  const client = new Client({ name: 'zcode-cache-mode-test', version: '1' });
+  clients.push(client);
+  await client.connect(
+    new StdioClientTransport({
+      command: manifest.mcpServers.cmdr.command,
+      args: [join(root, 'bin/cmdr-mcp')],
+      cwd: root,
+      // A host watcher is only offered to a confirmed session identity.
+      env: { ...env(), CMDR_AGENT: 'zcode', CMDR_SESSION_ID: 'cache-mode' },
+      stderr: 'pipe',
+    }),
+  );
+  expect((await client.listTools()).tools).toHaveLength(9);
+
+  // The cached bin/cmdr is not executable either, so the watcher the daemon
+  // hands out must start through sh as well.
+  const joined = JSON.parse(
+    (
+      (
+        await client.callTool({
+          name: 'join',
+          arguments: { squad_name: 'cache-mode', standby: 'auto' },
+        })
+      ).content as any[]
+    )[0].text,
+  );
+  const arm = joined.me.listener.arm.command;
+  expect(arm).toContain(`/bin/sh '${join(realpathSync(root), 'bin/cmdr')}'`);
+  await session('c', 'join', { role: 'commander', squad_name: 'cache-mode' });
+  const { ids } = await session('c', 'send', { to: joined.me.sid, message: 'cache-mode wake' });
+  // Run exactly what the host receives, without this test's environment.
+  const { stdout } = await run('/bin/sh', ['-c', `${arm} --once`], {
+    env: { ...process.env, CMDR_HOME: '', CMDR_AGENT: '', CMDR_SESSION_ID: '' },
+    timeout: 10000,
+  });
+  expect(JSON.parse(stdout).messages).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: ids[0] })]),
+  );
+}, 20000);
 it('CLI timeout and SIGTERM leave future messages unread and do not retry asks', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-cancel-'));
   await session('c', 'join', { role: 'commander', squad_name: 'cancel' });
