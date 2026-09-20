@@ -269,7 +269,7 @@ it('stops all channel listeners on explicit closure without dropping their work'
   expect(f.store.commands(e.sid!)).toHaveLength(1);
 });
 
-it.each(['claude', 'zcode'])(
+it.each(['claude', 'zcode', 'kimi'])(
   'arms %s only with a live host lease, rejects duplicates and expires',
   async (agent) => {
     f = fixture();

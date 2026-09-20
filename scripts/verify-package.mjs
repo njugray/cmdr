@@ -42,6 +42,7 @@ try {
     '.claude-plugin/marketplace.json',
     'marketplace.json',
     'plugins/cmdr/.zcode-plugin/plugin.json',
+    'plugins/cmdr/.kimi-plugin/plugin.json',
     'plugins/cmdr/skills/cmdr/SKILL.md',
     'plugins/cmdr/skills/cmdr/references/setup.md',
     'plugins/cmdr/skills/cmdr/references/commander.md',

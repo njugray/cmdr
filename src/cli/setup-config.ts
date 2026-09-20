@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'smol-toml';
+import { cmdrTool } from '../shared/env.js';
 
-export type SetupHost = 'claude' | 'codex' | 'zcode';
+export type SetupHost = 'claude' | 'codex' | 'zcode' | 'kimi';
 type ObjectValue = Record<string, any>;
 const begin = '# BEGIN cmdr setup';
 const end = '# END cmdr setup';
@@ -55,10 +56,15 @@ function serverConfig(previous: unknown, command: string, host: SetupHost): Obje
     args: [],
     ...(host === 'codex' ? { tool_timeout_sec: 600 } : { type: 'stdio' }),
     ...(host === 'zcode' ? { timeoutMs: 600000 } : {}),
+    ...(host === 'kimi' ? { toolTimeoutMs: 600000 } : {}),
   };
 }
 
-export function mergeJsonServer(config: ObjectValue, command: string, host: 'claude' | 'zcode') {
+export function mergeJsonServer(
+  config: ObjectValue,
+  command: string,
+  host: 'claude' | 'zcode' | 'kimi',
+) {
   const parent = host === 'zcode' ? (config.mcp = object(config.mcp ?? {}, 'mcp')) : config;
   const key = host === 'zcode' ? 'servers' : 'mcpServers';
   const servers = (parent[key] = object(parent[key] ?? {}, key));
@@ -113,6 +119,69 @@ export function codexConfig(text: string, command: string) {
     hooksDisabled: config.features?.hooks === false || config.features?.codex_hooks === false,
     serverDisabled: server.enabled === false,
   };
+}
+
+export function kimiHooksConfig(text: string, executable: string) {
+  // Kimi Code fails config load on unknown event names, so only documented
+  // events are written. Kimi pools one MCP process per workspace: UserPrompt
+  // Submit carries unread reminders to the model, PreToolUse verifies the
+  // per-call _cmdr_session stamp (hooks cannot rewrite tool input), Stop
+  // blocks once per turn on actionable work, and SessionStart/SessionEnd
+  // track presence without binding identity.
+  const blockHooks = [
+    { event: 'SessionStart' },
+    { event: 'UserPromptSubmit' },
+    { event: 'PreToolUse', matcher: cmdrTool.source },
+    { event: 'Stop' },
+    { event: 'SessionEnd', timeout: 1 },
+  ].map(({ event, matcher, timeout }) => ({
+    event,
+    ...(matcher ? { matcher } : {}),
+    command: `${shellQuote(executable)} ${event}`,
+    timeout: timeout ?? 5,
+  }));
+  const block = `${begin}\n${stringify({ hooks: blockHooks })}${end}`;
+  const start = text.indexOf(begin),
+    stop = text.indexOf(end);
+  if ((start >= 0 || stop >= 0) && (start < 0 || stop < start))
+    throw new Error(
+      'Invalid cmdr setup markers in config.toml. Restore the managed block before retrying.',
+    );
+  const output =
+    start >= 0
+      ? text.slice(0, start) + block + text.slice(stop + end.length)
+      : `${text}${text && !text.endsWith('\n') ? '\n' : ''}\n${block}\n`;
+  let full: ObjectValue;
+  try {
+    full = parse(text, { integersAsBigInt: 'asNeeded' });
+  } catch {
+    throw new Error('Cannot parse Kimi Code config.toml; no configuration was changed.');
+  }
+  const allHooks = full.hooks ?? [];
+  if (!Array.isArray(allHooks)) throw new Error('hooks must be an array of [[hooks]] tables.');
+  let previous: unknown[] = [];
+  if (start >= 0)
+    try {
+      previous =
+        (
+          parse(text.slice(start, stop + end.length), {
+            integersAsBigInt: 'asNeeded',
+          }) as ObjectValue
+        ).hooks ?? [];
+    } catch {
+      previous = [];
+    }
+  const kept = allHooks.filter((h) => !previous.some((o) => isDeepStrictEqual(o, h)));
+  const expected = { ...full, hooks: [...kept, ...blockHooks] };
+  try {
+    if (!isDeepStrictEqual(parse(output, { integersAsBigInt: 'asNeeded' }), expected))
+      throw new Error();
+  } catch {
+    throw new Error(
+      'Cannot safely merge the cmdr hooks into config.toml. Move conflicting [[hooks]] entries and retry.',
+    );
+  }
+  return output;
 }
 
 export function mergeHooks(config: ObjectValue, executable: string, host: SetupHost) {

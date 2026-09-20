@@ -18,6 +18,7 @@ import {
   checkPlugin,
   codexConfig,
   jsonConfig,
+  kimiHooksConfig,
   mergeHooks,
   mergeJsonServer,
   shellQuote,
@@ -45,7 +46,7 @@ function launcher(
   agent?: SetupHost,
   codexHome?: string,
 ) {
-  return `#!/bin/sh\n# Managed by cmdr setup (https://github.com/njugray/cmdr).\nexport CMDR_HOME=${shellQuote(state)}\n${agent ? `export CMDR_AGENT=${shellQuote(agent)}\n` : ''}${agent === 'codex' || agent === 'zcode' ? 'export CMDR_TOOL_TIMEOUT_SEC=600\n' : ''}${codexHome ? `export CODEX_HOME=${shellQuote(codexHome)}\n` : ''}exec ${shellQuote(join(runtime, 'bin', entry))} "$@"\n`;
+  return `#!/bin/sh\n# Managed by cmdr setup (https://github.com/njugray/cmdr).\nexport CMDR_HOME=${shellQuote(state)}\n${agent ? `export CMDR_AGENT=${shellQuote(agent)}\n` : ''}${agent === 'codex' || agent === 'zcode' || agent === 'kimi' ? 'export CMDR_TOOL_TIMEOUT_SEC=600\n' : ''}${codexHome ? `export CODEX_HOME=${shellQuote(codexHome)}\n` : ''}exec ${shellQuote(join(runtime, 'bin', entry))} "$@"\n`;
 }
 
 export async function runSetup(argv: string[], sourceRoot: string) {
@@ -62,14 +63,19 @@ export async function runSetup(argv: string[], sourceRoot: string) {
   });
   if (values.help) {
     console.log(
-      'cmdr setup --agent claude-code|codex|zcode [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile.',
+      'cmdr setup --agent claude-code|codex|zcode|kimi-code [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile.',
     );
     return;
   }
-  const agent = values.agent === 'claude-code' ? 'claude' : values.agent;
-  if (positionals.length || !agent || !['claude', 'codex', 'zcode'].includes(agent))
+  const agent =
+    values.agent === 'claude-code'
+      ? 'claude'
+      : values.agent === 'kimi-code'
+        ? 'kimi'
+        : values.agent;
+  if (positionals.length || !agent || !['claude', 'codex', 'zcode', 'kimi'].includes(agent))
     throw new Error(
-      'Use cmdr setup --agent claude-code|codex|zcode. Other MCP hosts can use cmdr config --agent HOST.',
+      'Use cmdr setup --agent claude-code|codex|zcode|kimi-code. Other MCP hosts can use cmdr config --agent HOST.',
     );
   const host = agent as SetupHost;
   const source = await inspectInstallation(sourceRoot);
@@ -88,7 +94,9 @@ export async function runSetup(argv: string[], sourceRoot: string) {
       ? resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'))
       : host === 'codex'
         ? resolve(process.env.CODEX_HOME || join(homedir(), '.codex'))
-        : join(homedir(), '.zcode');
+        : host === 'kimi'
+          ? resolve(process.env.KIMI_CODE_HOME || join(homedir(), '.kimi-code'))
+          : join(homedir(), '.zcode');
   // Independent host profiles may share daemon state, but must not overwrite
   // each other's launchers (especially their bound CODEX_HOME).
   const profile = createHash('sha256').update(hostRoot).digest('hex').slice(0, 12);
@@ -96,13 +104,26 @@ export async function runSetup(argv: string[], sourceRoot: string) {
     hook = join(bin, `cmdr-hook-${host}-${profile}`);
   const changes: SetupChange[] = [];
   const warnings: string[] = [];
+  // The host plugin manager copies enabled plugins to plugins/managed/<id>;
+  // standalone setup must not add a second MCP server and hook set.
+  if (host === 'kimi' && existsSync(join(hostRoot, 'plugins/managed/cmdr')))
+    throw new Error(
+      'The cmdr plugin is already enabled. Use its installation, or remove it before running standalone setup to avoid duplicate tools and hooks.',
+    );
   const add = (change: SetupChange | undefined) => {
     if (change) changes.push(change);
   };
   const writeConfig = (path: string, config: unknown) =>
     add(fileChange(path, JSON.stringify(config, null, 2) + '\n'));
   let config: string;
-  if (host === 'codex') {
+  if (host === 'kimi') {
+    config = configPath(join(hostRoot, 'mcp.json'));
+    const servers = jsonConfig(read(config), config);
+    mergeJsonServer(servers, mcp, 'kimi');
+    writeConfig(config, servers);
+    const hooksPath = configPath(join(hostRoot, 'config.toml'));
+    add(fileChange(hooksPath, kimiHooksConfig(read(hooksPath), hook)));
+  } else if (host === 'codex') {
     config = configPath(join(hostRoot, 'config.toml'));
     const merged = codexConfig(read(config), mcp);
     add(fileChange(config, merged.text));
@@ -161,6 +182,8 @@ export async function runSetup(argv: string[], sourceRoot: string) {
   }
   const skill = join(hostRoot, 'skills/cmdr');
   add(skillChange(skill, join(runtime, 'skills/cmdr')));
+  if (host === 'kimi')
+    add(skillChange(join(hostRoot, 'skills/cmdr-identity'), join(runtime, 'kimi-identity')));
   const result = {
     agent: values.agent,
     version: source.version,
@@ -171,7 +194,10 @@ export async function runSetup(argv: string[], sourceRoot: string) {
     dry_run: !!values['dry-run'],
     changed: changes.map((change) => change.path),
     warnings,
-    restart: 'Start a new host session and review any hook trust prompts.',
+    restart:
+      host === 'kimi'
+        ? 'Restart the Kimi Code app: it loads config.toml hooks only at startup.'
+        : 'Start a new host session and review any hook trust prompts.',
   };
   const output = (extra: Record<string, unknown>) => {
     if (values.json) console.log(JSON.stringify({ ...result, ...extra }, null, 2));

@@ -42,7 +42,7 @@ afterEach(async () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
-it.each(['claude', 'zcode'])(
+it.each(['claude', 'zcode', 'kimi'])(
   '%s watcher is silent when idle, non-consuming and re-armable',
   async (agent) => {
     home = mkdtempSync(join(tmpdir(), 'cmdr-watch-'));
@@ -62,7 +62,7 @@ it.each(['claude', 'zcode'])(
     await expect.poll(() => watcher.output()).toContain(id);
     expect(watcher.output()).not.toContain('sensitive task body');
     expect((await member(agent, 'e', 'read', { peek: true })).messages[0].id).toBe(id);
-    if (agent === 'zcode') expect(await watcher.exited).toBe(0);
+    if (agent === 'zcode' || agent === 'kimi') expect(await watcher.exited).toBe(0);
     else {
       watcher.child.kill();
       await watcher.exited;
@@ -82,7 +82,7 @@ it.each(['claude', 'zcode'])(
   },
   15000,
 );
-it.each(['claude', 'zcode'])(
+it.each(['claude', 'zcode', 'kimi'])(
   '%s one-shot watcher waits for answers when re-armed around blocked work and still observes cancellation',
   async (agent) => {
     home = mkdtempSync(join(tmpdir(), 'cmdr-watch-blocked-'));

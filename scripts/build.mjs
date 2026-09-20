@@ -48,7 +48,7 @@ const frontend = await build({
 await copyFile('src/dashboard/index.html', 'plugins/cmdr/dist/dashboard/index.html');
 for (const entry of ['cli', 'mcp', 'hook', 'daemon'])
   await chmod(`plugins/cmdr/dist/${entry}.mjs`, 0o755);
-for (const host of ['claude', 'codex', 'zcode']) {
+for (const host of ['claude', 'codex', 'zcode', 'kimi']) {
   const path = `plugins/cmdr/.${host}-plugin/plugin.json`,
     manifest = JSON.parse(await readFile(path, 'utf8'));
   manifest.version = pkg.version;
