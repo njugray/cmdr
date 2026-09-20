@@ -271,7 +271,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.5.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.6.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -497,7 +497,7 @@ async function watch(sid, once = false) {
         instruction: "Call read and read(recover=true); handle cancellation first and report with reply_to."
       }) + "\n"
     );
-    if (once || result.wake_mode === "zcode") stop();
+    if (once || result.wake_mode === "zcode" || result.wake_mode === "kimi") stop();
   };
   const check = async () => {
     if (stopped) return;
@@ -4816,6 +4816,7 @@ var methods = {
 };
 
 // src/shared/env.ts
+var cmdrTool = /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read|task|artifact)$/;
 function waitRecommendation(agent, env = process.env) {
   const timeout = Number(env.CMDR_TOOL_TIMEOUT_SEC);
   if (Number.isFinite(timeout) && timeout > 0) {
@@ -5943,7 +5944,8 @@ function serverConfig(previous, command, host) {
     command,
     args: [],
     ...host === "codex" ? { tool_timeout_sec: 600 } : { type: "stdio" },
-    ...host === "zcode" ? { timeoutMs: 6e5 } : {}
+    ...host === "zcode" ? { timeoutMs: 6e5 } : {},
+    ...host === "kimi" ? { toolTimeoutMs: 6e5 } : {}
   };
 }
 function mergeJsonServer(config, command, host) {
@@ -5995,6 +5997,58 @@ ${block}
     hooksDisabled: config.features?.hooks === false || config.features?.codex_hooks === false,
     serverDisabled: server.enabled === false
   };
+}
+function kimiHooksConfig(text3, executable) {
+  const blockHooks = [
+    { event: "SessionStart" },
+    { event: "UserPromptSubmit" },
+    { event: "PreToolUse", matcher: cmdrTool.source },
+    { event: "Stop" },
+    { event: "SessionEnd", timeout: 1 }
+  ].map(({ event, matcher, timeout }) => ({
+    event,
+    ...matcher ? { matcher } : {},
+    command: `${shellQuote(executable)} ${event}`,
+    timeout: timeout ?? 5
+  }));
+  const block = `${begin}
+${stringify({ hooks: blockHooks })}${end}`;
+  const start = text3.indexOf(begin), stop = text3.indexOf(end);
+  if ((start >= 0 || stop >= 0) && (start < 0 || stop < start))
+    throw new Error(
+      "Invalid cmdr setup markers in config.toml. Restore the managed block before retrying."
+    );
+  const output = start >= 0 ? text3.slice(0, start) + block + text3.slice(stop + end.length) : `${text3}${text3 && !text3.endsWith("\n") ? "\n" : ""}
+${block}
+`;
+  let full;
+  try {
+    full = parse2(text3, { integersAsBigInt: "asNeeded" });
+  } catch {
+    throw new Error("Cannot parse Kimi Code config.toml; no configuration was changed.");
+  }
+  const allHooks = full.hooks ?? [];
+  if (!Array.isArray(allHooks)) throw new Error("hooks must be an array of [[hooks]] tables.");
+  let previous = [];
+  if (start >= 0)
+    try {
+      previous = parse2(text3.slice(start, stop + end.length), {
+        integersAsBigInt: "asNeeded"
+      }).hooks ?? [];
+    } catch {
+      previous = [];
+    }
+  const kept = allHooks.filter((h) => !previous.some((o) => isDeepStrictEqual(o, h)));
+  const expected = { ...full, hooks: [...kept, ...blockHooks] };
+  try {
+    if (!isDeepStrictEqual(parse2(output, { integersAsBigInt: "asNeeded" }), expected))
+      throw new Error();
+  } catch {
+    throw new Error(
+      "Cannot safely merge the cmdr hooks into config.toml. Move conflicting [[hooks]] entries and retry."
+    );
+  }
+  return output;
 }
 function mergeHooks(config, executable, host) {
   const container = config.hooks = object(config.hooks ?? {}, "hooks");
@@ -6182,7 +6236,7 @@ function launcher(runtime, entry, state, agent, codexHome) {
 # Managed by cmdr setup (https://github.com/njugray/cmdr).
 export CMDR_HOME=${shellQuote(state)}
 ${agent ? `export CMDR_AGENT=${shellQuote(agent)}
-` : ""}${agent === "codex" || agent === "zcode" ? "export CMDR_TOOL_TIMEOUT_SEC=600\n" : ""}${codexHome ? `export CODEX_HOME=${shellQuote(codexHome)}
+` : ""}${agent === "codex" || agent === "zcode" || agent === "kimi" ? "export CMDR_TOOL_TIMEOUT_SEC=600\n" : ""}${codexHome ? `export CODEX_HOME=${shellQuote(codexHome)}
 ` : ""}exec ${shellQuote(join6(runtime, "bin", entry))} "$@"
 `;
 }
@@ -6200,14 +6254,14 @@ async function runSetup(argv, sourceRoot) {
   });
   if (values.help) {
     console.log(
-      "cmdr setup --agent claude-code|codex|zcode [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile."
+      "cmdr setup --agent claude-code|codex|zcode|kimi-code [--config-dir PATH] [--dry-run] [--json]\nInstall or upgrade for the current user. CMDR_HOME selects runtime/state storage; --config-dir selects the host user profile."
     );
     return;
   }
-  const agent = values.agent === "claude-code" ? "claude" : values.agent;
-  if (positionals.length || !agent || !["claude", "codex", "zcode"].includes(agent))
+  const agent = values.agent === "claude-code" ? "claude" : values.agent === "kimi-code" ? "kimi" : values.agent;
+  if (positionals.length || !agent || !["claude", "codex", "zcode", "kimi"].includes(agent))
     throw new Error(
-      "Use cmdr setup --agent claude-code|codex|zcode. Other MCP hosts can use cmdr config --agent HOST."
+      "Use cmdr setup --agent claude-code|codex|zcode|kimi-code. Other MCP hosts can use cmdr config --agent HOST."
     );
   const host = agent;
   const source = await inspectInstallation(sourceRoot);
@@ -6217,17 +6271,28 @@ async function runSetup(argv, sourceRoot) {
   const digest = createHash3("sha256").update(readFileSync4(join6(sourceRoot, "dist/integrity.json"))).digest("hex").slice(0, 16);
   const runtime = join6(state, "runtimes", `${source.version}-${digest}`);
   const bin = join6(state, "bin");
-  const hostRoot = values["config-dir"] ? resolve2(values["config-dir"]) : host === "claude" ? resolve2(process.env.CLAUDE_CONFIG_DIR || join6(homedir2(), ".claude")) : host === "codex" ? resolve2(process.env.CODEX_HOME || join6(homedir2(), ".codex")) : join6(homedir2(), ".zcode");
+  const hostRoot = values["config-dir"] ? resolve2(values["config-dir"]) : host === "claude" ? resolve2(process.env.CLAUDE_CONFIG_DIR || join6(homedir2(), ".claude")) : host === "codex" ? resolve2(process.env.CODEX_HOME || join6(homedir2(), ".codex")) : host === "kimi" ? resolve2(process.env.KIMI_CODE_HOME || join6(homedir2(), ".kimi-code")) : join6(homedir2(), ".zcode");
   const profile = createHash3("sha256").update(hostRoot).digest("hex").slice(0, 12);
   const mcp = join6(bin, `cmdr-mcp-${host}-${profile}`), hook = join6(bin, `cmdr-hook-${host}-${profile}`);
   const changes = [];
   const warnings = [];
+  if (host === "kimi" && existsSync2(join6(hostRoot, "plugins/managed/cmdr")))
+    throw new Error(
+      "The cmdr plugin is already enabled. Use its installation, or remove it before running standalone setup to avoid duplicate tools and hooks."
+    );
   const add = (change) => {
     if (change) changes.push(change);
   };
   const writeConfig = (path, config2) => add(fileChange(path, JSON.stringify(config2, null, 2) + "\n"));
   let config;
-  if (host === "codex") {
+  if (host === "kimi") {
+    config = configPath(join6(hostRoot, "mcp.json"));
+    const servers = jsonConfig(read(config), config);
+    mergeJsonServer(servers, mcp, "kimi");
+    writeConfig(config, servers);
+    const hooksPath = configPath(join6(hostRoot, "config.toml"));
+    add(fileChange(hooksPath, kimiHooksConfig(read(hooksPath), hook)));
+  } else if (host === "codex") {
     config = configPath(join6(hostRoot, "config.toml"));
     const merged = codexConfig(read(config), mcp);
     add(fileChange(config, merged.text));
@@ -6277,6 +6342,8 @@ async function runSetup(argv, sourceRoot) {
   }
   const skill = join6(hostRoot, "skills/cmdr");
   add(skillChange(skill, join6(runtime, "skills/cmdr")));
+  if (host === "kimi")
+    add(skillChange(join6(hostRoot, "skills/cmdr-identity"), join6(runtime, "kimi-identity")));
   const result = {
     agent: values.agent,
     version: source.version,
@@ -6287,7 +6354,7 @@ async function runSetup(argv, sourceRoot) {
     dry_run: !!values["dry-run"],
     changed: changes.map((change) => change.path),
     warnings,
-    restart: "Start a new host session and review any hook trust prompts."
+    restart: host === "kimi" ? "Restart the Kimi Code app: it loads config.toml hooks only at startup." : "Start a new host session and review any hook trust prompts."
   };
   const output = (extra) => {
     if (values.json) console.log(JSON.stringify({ ...result, ...extra }, null, 2));
@@ -6476,12 +6543,37 @@ if (process.argv[2] === "setup") {
     } catch {
       checks.zcode_user_hooks = "No user hook config; installed plugin hooks follow plugin enablement.";
     }
+    const kimiRoot = "/Applications/Kimi Code.app/Contents";
+    if (existsSync3(join7(kimiRoot, "Info.plist"))) {
+      try {
+        checks.kimi = {
+          app_version: execFileSync(
+            "/usr/libexec/PlistBuddy",
+            ["-c", "Print :CFBundleShortVersionString", join7(kimiRoot, "Info.plist")],
+            { encoding: "utf8", timeout: 1e3 }
+          ).trim(),
+          config_dir: process.env.KIMI_CODE_HOME || join7(homedir3(), ".kimi-code")
+        };
+      } catch {
+        checks.kimi = "Installed";
+      }
+    } else
+      checks.kimi = "Desktop app not found in /Applications; generic MCP configuration is available.";
+    try {
+      const kconfig = readFileSync5(
+        join7(process.env.KIMI_CODE_HOME || join7(homedir3(), ".kimi-code"), "config.toml"),
+        "utf8"
+      );
+      checks.kimi_hooks = /cmdr-hook/.test(kconfig) ? "cmdr hooks present in config.toml" : "No cmdr hooks in config.toml; run cmdr setup --agent kimi-code.";
+    } catch {
+      checks.kimi_hooks = "Kimi Code configuration unavailable";
+    }
     print(checks);
   }
   try {
     if (v.help)
       process.stdout.write(
-        "cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
+        "cmdr status | dashboard [--no-open] [--json] | setup --agent claude-code|codex|zcode|kimi-code [--dry-run] [--json] | list [--all] [--squad ID] | tail [--follow] [--full] [--json] [--after EVENT_SEQ|now] [--actionable] [--format line|json] [--for SID] | standby start|status|stop|resume|watch --session SID [--adapter codex|claude|zcode|kimi|manual] [--transport auto|proxy|queue] [--once] | send --squad ID [--to MEMBER] [--type command|cancel|info|answer] TEXT | read --session SID [--peek] | daemon start|stop|restart|status|logs | config [--agent HOST] [--session ID] | doctor [--plugin-root PATH] [--deep] | session --help | purge [--all]\n"
       );
     else if (cmd === "dashboard") {
       const result = await call("admin.dashboard", {}, true);
@@ -6506,9 +6598,10 @@ if (process.argv[2] === "setup") {
         env: {
           CMDR_AGENT: agent,
           ...v.session ? { CMDR_SESSION_ID: v.session } : {},
-          ...agent === "zcode" ? { CMDR_TOOL_TIMEOUT_SEC: "600" } : {}
+          ...agent === "zcode" || agent === "kimi" ? { CMDR_TOOL_TIMEOUT_SEC: "600" } : {}
         },
-        ...agent === "zcode" ? { timeoutMs: 6e5 } : {}
+        ...agent === "zcode" ? { timeoutMs: 6e5 } : {},
+        ...agent === "kimi" ? { toolTimeoutMs: 6e5 } : {}
       };
       print(
         agent === "zcode" ? { mcp: { servers: { cmdr: server } } } : { mcpServers: { cmdr: server } }

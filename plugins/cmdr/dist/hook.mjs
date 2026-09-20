@@ -89,6 +89,7 @@ var cmdrTool = /(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read|task
 function detectAgent(env = process.env, hook) {
   if (env.CMDR_AGENT && /^[a-z][a-z0-9_-]{0,63}$/.test(env.CMDR_AGENT)) return env.CMDR_AGENT;
   if (env.ZCODE_PLUGIN_ROOT || env.ZCODE_PLUGIN_ID) return "zcode";
+  if (env.KIMI_PLUGIN_ROOT) return "kimi";
   if (env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_CODE_ENTRYPOINT) return "claude";
   if (hook?.transcript_path && String(hook.transcript_path).includes("/.claude/")) return "claude";
   if (env.CODEX_HOME || env.CODEX_THREAD_ID || env.CODEX_SESSION_ID || hook?.turn_id)
@@ -254,7 +255,7 @@ var Rpc = class extends EventEmitter {
 };
 
 // src/shared/version.ts
-var VERSION = true ? "0.5.0" : MIN_CLIENT_VERSION;
+var VERSION = true ? "0.6.0" : MIN_CLIENT_VERSION;
 var PROTOCOL = 1;
 function newer(a, b) {
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
@@ -391,6 +392,13 @@ async function runHook(input, event = input.hook_event_name) {
     return;
   }
   if (event === "PreToolUse" && cmdrTool.test(input.tool_name || "")) {
+    if (agent === "kimi") {
+      if ((input.tool_input || {})._cmdr_session === input.session_id) return;
+      return {
+        decision: "block",
+        reason: `[cmdr] Kimi Code shares one cmdr MCP process per workspace; retry this call with _cmdr_session="${input.session_id}".`
+      };
+    }
     if (agent !== "claude")
       return {
         hookSpecificOutput: {
@@ -424,8 +432,18 @@ try {
     input += chunk;
     if (input.length > 2 * 1024 * 1024) throw new Error("large input");
   }
-  const result = await runHook(JSON.parse(input), process.argv[2]);
-  if (result) process.stdout.write(JSON.stringify(result) + "\n");
+  const parsed = JSON.parse(input);
+  const agent = detectAgent(process.env, parsed);
+  const result = await runHook(parsed, process.argv[2]);
+  if (result) {
+    if (agent === "kimi") {
+      if (result.decision === "block")
+        process.stderr.write(`${result.reason}
+`, () => process.exit(2));
+      else if (process.argv[2] === "UserPromptSubmit" && result.hookSpecificOutput?.additionalContext)
+        process.stdout.write(result.hookSpecificOutput.additionalContext + "\n");
+    } else process.stdout.write(JSON.stringify(result) + "\n");
+  }
 } catch (e) {
   diagnostic(e.code === "DAEMON_UNAVAILABLE" ? "hook-unavailable" : "hook-error");
 }

@@ -1,0 +1,65 @@
+{
+  "name": "cmdr",
+  "version": "0.6.0",
+  "description": "Local multi-agent squads with durable messages, roles and lifecycle reminders.",
+  "author": {
+    "name": "njugray"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/njugray/cmdr",
+  "skills": [
+    "./skills/",
+    "./kimi-identity/"
+  ],
+  "commands": "./commands/",
+  "sessionStart": {
+    "skill": "cmdr-identity"
+  },
+  "mcpServers": {
+    "cmdr": {
+      "command": "./bin/cmdr-mcp",
+      "env": {
+        "CMDR_AGENT": "kimi",
+        "CMDR_TOOL_TIMEOUT_SEC": "600"
+      },
+      "toolTimeoutMs": 600000
+    }
+  },
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "./bin/cmdr-hook SessionStart",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "command": "./bin/cmdr-hook UserPromptSubmit",
+      "timeout": 5
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "(?:^|[_:])cmdr(?:__|:)(list|join|report|leave|ask|send|read|task|artifact)$",
+      "command": "./bin/cmdr-hook PreToolUse",
+      "timeout": 5
+    },
+    {
+      "event": "Stop",
+      "command": "./bin/cmdr-hook Stop",
+      "timeout": 5
+    },
+    {
+      "event": "SessionEnd",
+      "command": "./bin/cmdr-hook SessionEnd",
+      "timeout": 1
+    }
+  ],
+  "interface": {
+    "displayName": "cmdr",
+    "category": "Developer Tools",
+    "shortDescription": "Coordinate local coding-agent sessions.",
+    "longDescription": "Connect local coding-agent sessions in squads with persistent messages, explicit roles, and lifecycle reminders.",
+    "developerName": "njugray",
+    "defaultPrompt": "Create or join a cmdr squad.",
+    "capabilities": []
+  }
+}
