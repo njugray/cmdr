@@ -1,11 +1,12 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { quickCall } from '../shared/client.js';
+import { paths } from '../shared/paths.js';
 import { diagnosticStatus } from '../shared/diagnostics.js';
 import { schemas } from '../shared/schemas.js';
 const exec = promisify(execFile);
@@ -27,6 +28,31 @@ export async function inspectInstallation(root: string) {
       };
     }
   }
+}
+function daemonPid(home: string) {
+  try {
+    const { pid } = JSON.parse(readFileSync(paths(home).info, 'utf8'));
+    return typeof pid === 'number' ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+// A daemon appends logs/daemon.log up to the moment it exits, so removing its
+// home any earlier races that write and rmdir reports ENOTEMPTY. Wait for the
+// process, then retry; a disposable temporary directory never fails a command.
+export async function disposeHome(home: string, pid?: number, timeout = 3000) {
+  const deadline = Date.now() + timeout;
+  while (pid && Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  try {
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  } catch {}
 }
 export async function probeMcp(root: string) {
   const home = mkdtempSync(join(tmpdir(), 'cmdr-doctor-'));
@@ -113,11 +139,11 @@ export async function probeMcp(root: string) {
     });
     lines.close();
     fail();
+    const daemon = daemonPid(home); // read before the shutdown removes daemon.json
     try {
       await quickCall('admin.shutdown', { reason: 'doctor' }, { home, timeout: 1000 });
     } catch {}
-    await new Promise((r) => setTimeout(r, 100));
-    rmSync(home, { recursive: true, force: true });
+    await disposeHome(home, daemon);
   }
 }
 export { diagnosticStatus };

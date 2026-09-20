@@ -226,6 +226,35 @@ it('deep probe reports handshake timeouts and tears down its child', async () =>
   expect(existsSync(join(home, 'cmdr.sock'))).toBe(false);
 }, 12000);
 
+it('removes the probe home only once its daemon is gone and never fails over it', async () => {
+  const { disposeHome } = await import('../src/cli/doctor.js');
+  home = mkdtempSync(join(tmpdir(), 'cmdr-dispose-'));
+  const probe = join(home, 'probe');
+  mkdirSync(join(probe, 'logs'), { recursive: true });
+  // The daemon appends to logs/daemon.log until the moment it exits.
+  const daemon = spawn(
+    process.execPath,
+    [
+      '-e',
+      "const {appendFileSync}=require('node:fs');const t=setInterval(()=>appendFileSync(process.argv[1],'line\\n'),5);setTimeout(()=>{clearInterval(t);process.exit(0)},600)",
+      join(probe, 'logs/daemon.log'),
+    ],
+    { stdio: 'ignore' },
+  );
+  const disposed = disposeHome(probe, daemon.pid);
+  await new Promise((r) => setTimeout(r, 200));
+  expect(existsSync(probe)).toBe(true);
+  await disposed;
+  expect(existsSync(probe)).toBe(false);
+  const quiet = join(home, 'quiet');
+  mkdirSync(quiet);
+  await disposeHome(quiet);
+  expect(existsSync(quiet)).toBe(false);
+  // A disposable temporary directory must never fail the command that made it.
+  writeFileSync(join(home, 'file'), 'not a directory');
+  await expect(disposeHome(join(home, 'file/nested'))).resolves.toBeUndefined();
+}, 10000);
+
 it('rejects stale cache versions and corrupted hook runtime while remaining fail-open', async () => {
   home = mkdtempSync(join(tmpdir(), 'cmdr-stale-'));
   const root = join(home, 'plugin');
